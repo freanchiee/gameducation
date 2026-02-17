@@ -1,0 +1,113 @@
+import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { buildEvaluationPrompt } from '@/lib/prompts/rubrics'
+import { claudeClient } from '@/lib/claude'
+import type { Message } from '@/lib/types'
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json()
+    const { session_id, participant_id, conversation_history, student_name } = body
+
+    if (!session_id || !conversation_history) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    }
+
+    const supabase = await createClient()
+
+    // Verify session exists
+    const { data: session } = await supabase
+      .from('sessions')
+      .select('*, assessments(year_group, criteria, topic)')
+      .eq('id', session_id)
+      .single()
+
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+    }
+
+    const assessment = session.assessments
+
+    // Build transcript from conversation history
+    const transcript = (conversation_history as Message[])
+      .map((m) => `${m.role === 'ai' ? 'AI Examiner' : student_name}: ${m.content}`)
+      .join('\n\n')
+
+    const evaluationPrompt = buildEvaluationPrompt({
+      yearGroup: assessment.year_group,
+      topic: assessment.topic,
+      transcript,
+    })
+
+    const response = await claudeClient.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: evaluationPrompt }],
+    })
+
+    const rawText =
+      response.content[0].type === 'text' ? response.content[0].text : '{}'
+
+    let evaluation: {
+      level: number
+      levelBand: string
+      justification: string
+      strengths: string[]
+      areasForGrowth: string[]
+      evidenceQuotes: string[]
+      studentFeedback: string
+      teacherNotes: string
+    }
+
+    try {
+      evaluation = JSON.parse(rawText)
+    } catch {
+      return NextResponse.json({ error: 'Failed to parse evaluation JSON' }, { status: 500 })
+    }
+
+    // Find student_id for the participant
+    let studentId: string | null = null
+    if (participant_id) {
+      const { data: participant } = await supabase
+        .from('session_participants')
+        .select('student_id')
+        .eq('id', participant_id)
+        .single()
+      studentId = participant?.student_id ?? null
+    }
+
+    // Store evaluation in DB
+    const { data: savedEval, error: saveError } = await supabase
+      .from('evaluations')
+      .insert({
+        session_id,
+        student_id: studentId,
+        criterion_a_level: evaluation.level,
+        strengths: evaluation.strengths,
+        areas_for_growth: evaluation.areasForGrowth,
+        evidence_quotes: evaluation.evidenceQuotes,
+        feedback_student: evaluation.studentFeedback,
+        notes_teacher: evaluation.teacherNotes,
+        full_report: evaluation,
+        reviewed_by_teacher: false,
+      })
+      .select('id')
+      .single()
+
+    if (saveError) {
+      console.error('[/api/ai/evaluate] DB save error:', saveError)
+      return NextResponse.json({ error: 'Failed to save evaluation' }, { status: 500 })
+    }
+
+    // Mark session as completed
+    await supabase
+      .from('sessions')
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('id', session_id)
+
+    return NextResponse.json({ evaluation_id: savedEval.id })
+  } catch (err) {
+    console.error('[/api/ai/evaluate]', err)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
