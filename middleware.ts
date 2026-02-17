@@ -1,22 +1,30 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { getSupabaseEnv, hasSupabaseEnv } from '@/lib/supabase/env'
 
 const TEACHER_ROUTES = ['/classes', '/assessments', '/reports']
 const PUBLIC_ROUTES = ['/login', '/signup', '/reset-password']
 // Student routes (/lobby, /session, /results) are semi-public (code-gated, no auth required)
+type CookieToSet = { name: string; value: string; options?: any }
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
+  if (!hasSupabaseEnv()) {
+    return supabaseResponse
+  }
+
+  const { supabaseUrl, supabaseAnonKey } = getSupabaseEnv()
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseAnonKey,
     {
       cookies: {
         getAll() {
           return request.cookies.getAll()
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: CookieToSet[]) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           )
