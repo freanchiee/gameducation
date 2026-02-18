@@ -75,10 +75,22 @@ All tables have Row Level Security enabled. See migration file for policies.
 - Never expose rubric criteria text (`lib/prompts/rubrics.ts`) to students during assessment
 - Never reveal to students that they are being scored against a rubric
 
-## Build Phases
-- **Phase 0** (complete): Scaffold, types, Claude wrapper, prompts, DB migration
-- **Phase 1**: Auth + teacher profile creation
-- **Phase 2**: Teacher dashboard — class + assessment management
-- **Phase 3**: Core assessment session (individual mode, voice interface)
-- **Phase 4**: Group session mode
-- **Phase 5**: Reports, PDF export, teacher override, analytics
+## Build Phases & Current Status
+
+- **Phase 0** ✅ COMPLETE: Scaffold, types, Claude wrapper, prompts, DB migration
+- **Phase 1** ✅ COMPLETE: Auth pages (login, signup, reset-password), Supabase auth integration
+- **Phase 2** 🔲 IN PROGRESS: Teacher dashboard
+  - ✅ Dashboard layout + nav
+  - ✅ Classes list page (`/classes`)
+  - ✅ Assessments list page (`/assessments`)
+  - ✅ Reports list page (`/reports`)
+  - ❌ NEXT: Create class UI (`/classes/new`)
+  - ❌ NEXT: Create assessment UI (`/assessments/new`)
+  - ❌ NEXT: Evaluation detail page (`/reports/evaluation/[id]`)
+- **Phase 3** ✅ COMPLETE: Core assessment session (lobby, session, voice, results, all API routes)
+- **Phase 4** ❌ NOT STARTED: Group session mode
+- **Phase 5** ❌ NOT STARTED: PDF export, teacher score override, analytics
+
+## Font Note
+Google Fonts removed (no network in build env). Using Tailwind system font stack (`font-sans`).
+`app/layout.tsx` imports only `./globals.css` — no `next/font` import.
