@@ -247,7 +247,7 @@ export default function VoiceInterface({
     if (silenceIntervalRef.current) clearInterval(silenceIntervalRef.current)
 
     silenceIntervalRef.current = setInterval(() => {
-      if (!isRecording) return
+      if (!shouldRestartRef.current) return
       const combined = collectCombinedTranscript()
       if (!combined) return
       const silenceFor = Date.now() - speechLastDetectedAtRef.current
