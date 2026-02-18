@@ -5,9 +5,17 @@ import { claudeClient } from '@/lib/claude'
 import type { Message } from '@/lib/types'
 
 export async function POST(request: Request) {
+  const startedAt = Date.now()
+  const reqId = Math.random().toString(36).slice(2, 10)
   try {
     const body = await request.json()
     const { session_id, participant_id, conversation_history, student_name } = body
+    console.log('[/api/ai/evaluate] start', {
+      reqId,
+      session_id,
+      participant_id,
+      history_len: Array.isArray(conversation_history) ? conversation_history.length : 0,
+    })
 
     if (!session_id || !conversation_history) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -23,6 +31,7 @@ export async function POST(request: Request) {
       .single()
 
     if (!session) {
+      console.warn('[/api/ai/evaluate] session not found', { reqId })
       return NextResponse.json({ error: 'Session not found' }, { status: 404 })
     }
 
@@ -105,9 +114,20 @@ export async function POST(request: Request) {
       .update({ status: 'completed', completed_at: new Date().toISOString() })
       .eq('id', session_id)
 
+    console.log('[/api/ai/evaluate] success', {
+      reqId,
+      elapsed_ms: Date.now() - startedAt,
+      evaluation_id: savedEval.id,
+    })
+
     return NextResponse.json({ evaluation_id: savedEval.id })
   } catch (err) {
-    console.error('[/api/ai/evaluate]', err)
+    console.error('[/api/ai/evaluate] error', {
+      reqId,
+      elapsed_ms: Date.now() - startedAt,
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

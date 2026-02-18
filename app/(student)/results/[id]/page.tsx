@@ -1,5 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { CheckCircle, TrendingUp, MessageSquareQuote } from 'lucide-react'
 
 const LEVEL_BANDS = [
@@ -15,7 +14,7 @@ function getLevelBand(level: number) {
 }
 
 export default async function ResultsPage({ params }: { params: { id: string } }) {
-  const supabase = await createClient()
+  const supabase = createAdminClient()
 
   const { data: evaluation } = await supabase
     .from('evaluations')
@@ -26,7 +25,19 @@ export default async function ResultsPage({ params }: { params: { id: string } }
     .eq('id', params.id)
     .single()
 
-  if (!evaluation) notFound()
+  if (!evaluation) {
+    return (
+      <div className="min-h-screen bg-[#ece8c7] py-10 px-4">
+        <div className="max-w-2xl mx-auto gd-surface p-8 text-center">
+          <h1 className="text-2xl font-bold text-[#223a83] mb-2">Assessment Complete</h1>
+          <p className="text-[#516079]">
+            Your evaluation is still being prepared. Please ask your teacher to refresh this page
+            in a moment.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   const band = getLevelBand(evaluation.criterion_a_level ?? 0)
   const assessment = (evaluation.sessions as any)?.assessments
