@@ -39,34 +39,34 @@ export default async function ReportsPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
-        <p className="text-gray-500 mt-1">Review AI-generated evaluation results</p>
+        <h1 className="text-3xl font-bold text-[#223a83]">Reports</h1>
+        <p className="text-[#516079] mt-1">Review AI-generated evaluation results</p>
       </div>
 
       {evaluations && evaluations.length > 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="gd-surface overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
+            <thead className="bg-[#ece6bf] border-b border-[#c9be86]">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Student</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Assessment</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Criterion A</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Status</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">Date</th>
+                <th className="px-4 py-3 text-left font-medium text-[#223a83]">Student</th>
+                <th className="px-4 py-3 text-left font-medium text-[#223a83]">Assessment</th>
+                <th className="px-4 py-3 text-left font-medium text-[#223a83]">Criterion A</th>
+                <th className="px-4 py-3 text-left font-medium text-[#223a83]">Status</th>
+                <th className="px-4 py-3 text-left font-medium text-[#223a83]">Date</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-[#d8deea]">
               {evaluations.map((ev) => {
                 const band = getLevelBand(ev.criterion_a_level ?? 0)
                 const assessment = (ev.sessions as any)?.assessments
                 const student = (ev.profiles as any)?.full_name ?? 'Unknown student'
                 return (
-                  <tr key={ev.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-gray-900">{student}</td>
-                    <td className="px-4 py-3 text-gray-600">
+                  <tr key={ev.id} className="hover:bg-[#eff4f8] transition-colors">
+                    <td className="px-4 py-3 font-medium text-[#223a83]">{student}</td>
+                    <td className="px-4 py-3 text-[#44597f]">
                       {assessment?.title ?? '—'}
-                      <span className="ml-2 text-xs text-gray-400">{assessment?.topic}</span>
+                      <span className="ml-2 text-xs text-[#687891]">{assessment?.topic}</span>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${band.color}`}>
@@ -80,13 +80,13 @@ export default async function ReportsPage() {
                         <span className="text-xs text-amber-600 font-medium">Needs review</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">
+                    <td className="px-4 py-3 text-[#687891] text-xs">
                       {new Date(ev.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3">
                       <Link
                         href={`/reports/evaluation/${ev.id}`}
-                        className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium"
+                        className="flex items-center gap-1 text-[#24408f] hover:text-[#1b3272] text-xs font-medium"
                       >
                         <ExternalLink size={12} />
                         Review
@@ -99,10 +99,10 @@ export default async function ReportsPage() {
           </table>
         </div>
       ) : (
-        <div className="text-center py-16 bg-white rounded-xl border border-dashed border-gray-300">
-          <FileText size={40} className="mx-auto text-gray-300 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No evaluations yet</h3>
-          <p className="text-gray-500">Completed student assessments will appear here.</p>
+        <div className="text-center py-16 gd-surface border-dashed border-[#b7c2d4]">
+          <FileText size={40} className="mx-auto text-[#7c89a4] mb-4" />
+          <h3 className="text-lg font-medium text-[#223a83] mb-2">No evaluations yet</h3>
+          <p className="text-[#516079]">Completed student assessments will appear here.</p>
         </div>
       )}
     </div>

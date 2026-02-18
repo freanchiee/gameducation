@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function POST(request: Request) {
   try {
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Access code and name are required' }, { status: 400 })
     }
 
-    const supabase = await createClient()
+    const supabase = createAdminClient()
 
     // Validate access code → find active assessment
     const { data: assessment, error: assessmentError } = await supabase
@@ -27,19 +27,9 @@ export async function POST(request: Request) {
       )
     }
 
-    // Create or retrieve a student profile (name-based, no auth)
-    // For MVP, we create an anonymous profile entry
-    const { data: studentProfile } = await supabase
-      .from('profiles')
-      .insert({
-        full_name: student_name,
-        role: 'student',
-        email: `${Date.now()}-${Math.random().toString(36).slice(2)}@anonymous.voiceiq`,
-      })
-      .select('id')
-      .single()
-
-    const studentId = studentProfile?.id ?? null
+    // Anonymous student flow: participants can be created without auth users.
+    // `session_participants.student_id` is nullable in schema.
+    const studentId = null
 
     // Group mode: look for a waiting session with available slots
     let sessionId: string
@@ -58,7 +48,7 @@ export async function POST(request: Request) {
       if (waitingSession && currentCount < (assessment.max_group_size ?? 4)) {
         sessionId = waitingSession.id
       } else {
-        const { data: newSession } = await supabase
+        const { data: newSession, error: newSessionError } = await supabase
           .from('sessions')
           .insert({
             assessment_id: assessment.id,
@@ -67,11 +57,15 @@ export async function POST(request: Request) {
           })
           .select('id')
           .single()
-        sessionId = newSession!.id
+        if (newSessionError || !newSession) {
+          console.error('[/api/sessions] create group session failed', newSessionError)
+          return NextResponse.json({ error: 'Failed to create session' }, { status: 500 })
+        }
+        sessionId = newSession.id
       }
     } else {
       // Individual mode: always create a new session
-      const { data: newSession } = await supabase
+      const { data: newSession, error: newSessionError } = await supabase
         .from('sessions')
         .insert({
           assessment_id: assessment.id,
@@ -81,21 +75,32 @@ export async function POST(request: Request) {
         })
         .select('id')
         .single()
-      sessionId = newSession!.id
+      if (newSessionError || !newSession) {
+        console.error('[/api/sessions] create individual session failed', newSessionError)
+        return NextResponse.json({ error: 'Failed to create session' }, { status: 500 })
+      }
+      sessionId = newSession.id
     }
 
     // Add participant to session
-    const { data: participant } = await supabase
+    const { data: participant, error: participantError } = await supabase
       .from('session_participants')
       .insert({
         session_id: sessionId,
         student_id: studentId,
+        student_name: student_name,
+        allow_text_input: false,
         joined_at: new Date().toISOString(),
       })
       .select('id')
       .single()
 
-    participantId = participant!.id
+    if (participantError || !participant) {
+      console.error('[/api/sessions] create participant failed', participantError)
+      return NextResponse.json({ error: 'Failed to join session' }, { status: 500 })
+    }
+
+    participantId = participant.id
 
     return NextResponse.json({ session_id: sessionId, participant_id: participantId })
   } catch (err) {

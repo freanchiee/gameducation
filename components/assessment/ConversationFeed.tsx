@@ -18,9 +18,9 @@ export default function ConversationFeed({ messages, aiState }: ConversationFeed
   }, [messages, aiState])
 
   return (
-    <div className="h-full overflow-y-auto px-4 py-4 space-y-4">
+    <div className="h-full overflow-y-auto px-4 py-4 space-y-4 bg-[#ece8c7]">
       {messages.length === 0 && aiState === 'processing' && (
-        <div className="flex items-center gap-2 text-gray-400 text-sm">
+        <div className="flex items-center gap-2 text-[#6d7b93] text-sm">
           <span className="inline-flex gap-1">
             <span className="w-2 h-2 rounded-full bg-gray-300 animate-bounce [animation-delay:0ms]" />
             <span className="w-2 h-2 rounded-full bg-gray-300 animate-bounce [animation-delay:150ms]" />
@@ -38,12 +38,12 @@ export default function ConversationFeed({ messages, aiState }: ConversationFeed
           <div
             className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
               message.role === 'ai'
-                ? 'bg-white border border-gray-200 text-gray-800 rounded-tl-sm shadow-sm'
-                : 'bg-blue-600 text-white rounded-tr-sm'
+                ? 'bg-[#f4f4f5] border border-[#cdd2dd] text-[#2b427f] rounded-tl-sm shadow-sm'
+                : 'bg-[#24408f] text-white rounded-tr-sm'
             }`}
           >
             {message.role === 'ai' && (
-              <p className="text-xs font-medium text-blue-600 mb-1">AI Examiner</p>
+              <p className="text-xs font-medium text-[#24408f] mb-1">AI Examiner</p>
             )}
             {message.content}
           </div>
@@ -53,8 +53,8 @@ export default function ConversationFeed({ messages, aiState }: ConversationFeed
       {/* AI thinking indicator */}
       {aiState === 'processing' && messages.length > 0 && (
         <div className="flex justify-start">
-          <div className="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
-            <p className="text-xs font-medium text-blue-600 mb-2">AI Examiner</p>
+          <div className="bg-[#f4f4f5] border border-[#cdd2dd] rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+            <p className="text-xs font-medium text-[#24408f] mb-2">AI Examiner</p>
             <span className="inline-flex gap-1 items-center">
               <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce [animation-delay:0ms]" />
               <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce [animation-delay:150ms]" />

@@ -38,11 +38,11 @@ export default function LobbyPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-2xl shadow-lg border">
+    <div className="min-h-screen flex items-center justify-center bg-[#ece8c7] px-4">
+      <div className="max-w-md w-full space-y-8 p-8 gd-surface">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900">VoiceIQ</h1>
-          <p className="mt-2 text-gray-500">Your oral assessment starts here</p>
+          <h1 className="text-3xl font-bold text-[#223a83]">VoiceIQ</h1>
+          <p className="mt-2 text-[#516079]">Your oral assessment starts here</p>
         </div>
 
         <form onSubmit={handleJoin} className="space-y-5">
@@ -53,7 +53,7 @@ export default function LobbyPage() {
           )}
 
           <div>
-            <label htmlFor="code" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="code" className="block text-sm font-medium text-[#223a83] mb-2">
               Access Code
             </label>
             <input
@@ -63,17 +63,17 @@ export default function LobbyPage() {
               maxLength={6}
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
-              className="w-full px-4 py-4 text-center text-3xl font-bold tracking-[0.5em] border-2 border-gray-300 rounded-xl focus:outline-none focus:border-blue-500 uppercase"
+              className="w-full px-4 py-4 text-center text-3xl font-bold tracking-[0.5em] uppercase rounded-xl gd-input"
               placeholder="XXXXXX"
               autoComplete="off"
             />
-            <p className="mt-1 text-xs text-gray-400 text-center">
+            <p className="mt-1 text-xs text-[#687891] text-center">
               6-character code from your teacher
             </p>
           </div>
 
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="name" className="block text-sm font-medium text-[#223a83] mb-2">
               Your full name
             </label>
             <input
@@ -82,7 +82,7 @@ export default function LobbyPage() {
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:border-blue-500"
+              className="w-full px-4 py-3 rounded-xl gd-input"
               placeholder="e.g. Priya Sharma"
             />
           </div>
@@ -90,13 +90,13 @@ export default function LobbyPage() {
           <button
             type="submit"
             disabled={loading || code.length !== 6 || name.trim().length < 2}
-            className="w-full py-4 bg-blue-600 text-white rounded-xl font-semibold text-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full py-4 rounded-xl font-semibold text-lg gd-button disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Joining...' : 'Join Assessment'}
           </button>
         </form>
 
-        <p className="text-center text-xs text-gray-400">
+        <p className="text-center text-xs text-[#687891]">
           No account needed. Your teacher will see your results.
         </p>
       </div>

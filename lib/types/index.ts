@@ -72,6 +72,8 @@ export interface SessionParticipant {
   id: string
   session_id: string
   student_id: string | null
+  student_name: string | null
+  allow_text_input: boolean
   joined_at: string
 }
 

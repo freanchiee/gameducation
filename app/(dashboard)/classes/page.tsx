@@ -18,12 +18,12 @@ export default async function ClassesPage() {
     <div>
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">My Classes</h1>
-          <p className="text-gray-500 mt-1">Manage your MYP and IB classes</p>
+          <h1 className="text-3xl font-bold text-[#223a83]">My Classes</h1>
+          <p className="text-[#516079] mt-1">Manage your MYP and IB classes</p>
         </div>
         <Link
           href="/classes/new"
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg gd-button font-medium text-sm"
         >
           <PlusCircle size={16} />
           New Class
@@ -36,16 +36,16 @@ export default async function ClassesPage() {
             <Link
               key={cls.id}
               href={`/classes/${cls.id}`}
-              className="block p-6 bg-white rounded-xl border border-gray-200 hover:border-blue-300 hover:shadow-sm transition-all"
+              className="block p-6 gd-surface hover:border-[#7a8eb5] hover:shadow-md transition-all"
             >
               <div className="flex justify-between items-start mb-3">
-                <span className="px-2 py-1 text-xs font-medium bg-blue-50 text-blue-700 rounded-full">
+                <span className="px-2 py-1 text-xs font-medium bg-[#ece6bf] text-[#24408f] rounded-full border border-[#c9be86]">
                   {cls.programme} {cls.year_group}
                 </span>
-                <span className="text-xs text-gray-400">{cls.subject}</span>
+                <span className="text-xs text-[#647189]">{cls.subject}</span>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">{cls.name}</h3>
-              <div className="flex items-center gap-4 text-sm text-gray-500">
+              <h3 className="text-lg font-semibold text-[#223a83] mb-2">{cls.name}</h3>
+              <div className="flex items-center gap-4 text-sm text-[#516079]">
                 <span className="flex items-center gap-1">
                   <Users size={14} />
                   {cls.class_enrolments?.[0]?.count ?? 0} students
@@ -59,13 +59,13 @@ export default async function ClassesPage() {
           ))}
         </div>
       ) : (
-        <div className="text-center py-16 bg-white rounded-xl border border-dashed border-gray-300">
-          <Users size={40} className="mx-auto text-gray-300 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No classes yet</h3>
-          <p className="text-gray-500 mb-6">Create your first class to get started with VoiceIQ.</p>
+        <div className="text-center py-16 gd-surface border-dashed border-[#b7c2d4]">
+          <Users size={40} className="mx-auto text-[#7c89a4] mb-4" />
+          <h3 className="text-lg font-medium text-[#223a83] mb-2">No classes yet</h3>
+          <p className="text-[#516079] mb-6">Create your first class to get started with VoiceIQ.</p>
           <Link
             href="/classes/new"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg gd-button font-medium text-sm"
           >
             <PlusCircle size={16} />
             Create a class

@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, Clock, PlayCircle, CheckCircle, ExternalLink } from 'lucide-react'
 import AssessmentActions from '@/components/teacher/AssessmentActions'
+import TypingPermissions from '@/components/teacher/TypingPermissions'
 import { AssessmentStatus } from '@/lib/types'
 
 const STATUS_CONFIG: Record<AssessmentStatus, { label: string; Icon: typeof Clock; color: string }> = {
@@ -187,6 +188,10 @@ export default async function AssessmentDetailPage({
             {status === 'active' && ' Share the access code with students to start.'}
           </div>
         )}
+      </div>
+
+      <div className="mt-6">
+        <TypingPermissions assessmentId={assessment.id} />
       </div>
     </div>
   )

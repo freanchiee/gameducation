@@ -17,6 +17,7 @@ export default function SessionPage() {
   const [maxQuestions, setMaxQuestions] = useState(6)
   const [studentName, setStudentName] = useState('')
   const [participantId, setParticipantId] = useState('')
+  const [allowTextInput, setAllowTextInput] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const initialized = useRef(false)
 
@@ -25,12 +26,33 @@ export default function SessionPage() {
     const pId = sessionStorage.getItem('voiceiq_participant_id') ?? ''
     setStudentName(sName)
     setParticipantId(pId)
+    void loadTypingPermission(pId)
 
     if (!initialized.current) {
       initialized.current = true
       startSession(sName, pId)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadTypingPermission(pId: string) {
+    if (!pId) return
+
+    try {
+      const res = await fetch(
+        `/api/participants/${pId}/typing?session_id=${encodeURIComponent(sessionId)}`
+      )
+
+      if (!res.ok) {
+        setAllowTextInput(false)
+        return
+      }
+
+      const data = await res.json()
+      setAllowTextInput(Boolean(data.allow_text_input))
+    } catch {
+      setAllowTextInput(false)
+    }
+  }
 
   async function startSession(name: string, pId: string) {
     setAiState('processing')
@@ -170,8 +192,8 @@ export default function SessionPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="max-w-md p-6 bg-white rounded-xl border text-center">
+      <div className="min-h-screen flex items-center justify-center bg-[#ece8c7]">
+        <div className="max-w-md p-6 gd-surface text-center">
           <p className="text-red-600 font-medium">{error}</p>
         </div>
       </div>
@@ -179,22 +201,22 @@ export default function SessionPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen bg-[#ece8c7] flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-        <h1 className="font-semibold text-gray-900">VoiceIQ Assessment</h1>
-        <div className="flex items-center gap-3 text-sm text-gray-500">
+      <div className="bg-[#d3e3e7] border-b border-[#b6c9cf] px-4 py-3 flex items-center justify-between">
+        <h1 className="font-semibold text-[#223a83]">VoiceIQ Assessment</h1>
+        <div className="flex items-center gap-3 text-sm text-[#44597f]">
           <span>{studentName}</span>
-          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full font-medium">
+          <span className="px-2 py-0.5 bg-[#ece6bf] text-[#24408f] rounded-full font-medium border border-[#c9be86]">
             Q {Math.min(questionNumber, maxQuestions)} / {maxQuestions}
           </span>
         </div>
       </div>
 
       {/* Progress bar */}
-      <div className="h-1 bg-gray-100">
+      <div className="h-1 bg-[#d7dcdf]">
         <div
-          className="h-1 bg-blue-500 transition-all duration-500"
+          className="h-1 bg-[#24408f] transition-all duration-500"
           style={{ width: `${((questionNumber - 1) / maxQuestions) * 100}%` }}
         />
       </div>
@@ -209,6 +231,7 @@ export default function SessionPage() {
         aiState={aiState}
         onResponse={handleStudentResponse}
         disabled={aiState !== 'idle'}
+        allowTextInput={allowTextInput}
       />
     </div>
   )

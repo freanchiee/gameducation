@@ -9,12 +9,34 @@ interface VoiceInterfaceProps {
   aiState: AIState
   onResponse: (transcript: string) => void
   disabled: boolean
+  allowTextInput: boolean
 }
 
 declare global {
+  interface SpeechRecognitionResultLike {
+    isFinal: boolean
+    0: { transcript: string }
+  }
+  interface SpeechRecognitionEventLike extends Event {
+    resultIndex: number
+    results: SpeechRecognitionResultLike[]
+  }
+  interface SpeechRecognitionErrorEventLike extends Event {
+    error: string
+  }
+  interface SpeechRecognitionLike {
+    continuous: boolean
+    interimResults: boolean
+    lang: string
+    onresult: ((event: SpeechRecognitionEventLike) => void) | null
+    onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null
+    onend: (() => void) | null
+    start: () => void
+    stop: () => void
+  }
   interface Window {
-    webkitSpeechRecognition: new () => SpeechRecognition
-    SpeechRecognition: new () => SpeechRecognition
+    webkitSpeechRecognition: new () => SpeechRecognitionLike
+    SpeechRecognition: new () => SpeechRecognitionLike
   }
 }
 
@@ -26,13 +48,18 @@ const STATE_LABELS: Record<AIState, string> = {
 }
 
 const STATE_COLORS: Record<AIState, string> = {
-  idle: 'bg-blue-600 hover:bg-blue-700',
+  idle: 'bg-[#24408f] hover:bg-[#1f387e]',
   listening: 'bg-red-500 hover:bg-red-600',
   processing: 'bg-gray-400 cursor-not-allowed',
   speaking: 'bg-gray-400 cursor-not-allowed',
 }
 
-export default function VoiceInterface({ aiState, onResponse, disabled }: VoiceInterfaceProps) {
+export default function VoiceInterface({
+  aiState,
+  onResponse,
+  disabled,
+  allowTextInput,
+}: VoiceInterfaceProps) {
   const [isRecording, setIsRecording] = useState(false)
   const [interimTranscript, setInterimTranscript] = useState('')
   const [finalTranscript, setFinalTranscript] = useState('')
@@ -40,7 +67,7 @@ export default function VoiceInterface({ aiState, onResponse, disabled }: VoiceI
   const [micError, setMicError] = useState<string | null>(null)
   const [textFallback, setTextFallback] = useState(false)
   const [textInput, setTextInput] = useState('')
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
 
   const speechSupported =
     typeof window !== 'undefined' &&
@@ -48,12 +75,25 @@ export default function VoiceInterface({ aiState, onResponse, disabled }: VoiceI
 
   useEffect(() => {
     if (!speechSupported) {
-      setTextFallback(true)
+      setMicError('Speech recognition is not available in this browser.')
+      setTextFallback(allowTextInput)
     }
-  }, [speechSupported])
+  }, [allowTextInput, speechSupported])
 
-  function startRecording() {
-    if (!speechSupported) return
+  async function startRecording() {
+    if (!speechSupported) {
+      if (allowTextInput) setTextFallback(true)
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach((track) => track.stop())
+    } catch {
+      setMicError('Microphone permission is blocked. Allow mic access in browser settings.')
+      if (allowTextInput) setTextFallback(true)
+      return
+    }
 
     const SpeechRecognition = window.SpeechRecognition ?? window.webkitSpeechRecognition
     const recognition = new SpeechRecognition()
@@ -61,7 +101,7 @@ export default function VoiceInterface({ aiState, onResponse, disabled }: VoiceI
     recognition.interimResults = true
     recognition.lang = 'en-US'
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onresult = (event: SpeechRecognitionEventLike) => {
       let interim = ''
       let final = ''
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -75,10 +115,10 @@ export default function VoiceInterface({ aiState, onResponse, disabled }: VoiceI
       if (final) setFinalTranscript((prev) => prev + final)
     }
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
       if (event.error === 'not-allowed') {
-        setMicError('Microphone permission denied. Using text input instead.')
-        setTextFallback(true)
+        setMicError('Microphone permission denied. Please allow mic and try again.')
+        if (allowTextInput) setTextFallback(true)
       }
       setIsRecording(false)
     }
@@ -122,9 +162,9 @@ export default function VoiceInterface({ aiState, onResponse, disabled }: VoiceI
     }
   }
 
-  if (textFallback) {
+  if (textFallback && allowTextInput) {
     return (
-      <div className="border-t border-gray-200 bg-white p-4">
+      <div className="border-t border-[#b8c5d8] bg-[#f4f4f5] p-4">
         {micError && (
           <div className="flex items-center gap-2 text-xs text-amber-600 mb-3">
             <AlertCircle size={14} />
@@ -142,14 +182,14 @@ export default function VoiceInterface({ aiState, onResponse, disabled }: VoiceI
               }
             }}
             placeholder="Type your answer here..."
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg resize-none text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-3 py-2 border border-[#4e5a75] bg-[#ece6bf] text-[#1f3779] placeholder:text-[#7b7f86] rounded-lg resize-none text-sm focus:outline-none focus:ring-2 focus:ring-[#24408f]"
             rows={3}
             disabled={disabled}
           />
           <button
             onClick={submitTextFallback}
             disabled={disabled || !textInput.trim()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
+            className="px-4 py-2 gd-button rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Send size={18} />
           </button>
@@ -160,21 +200,21 @@ export default function VoiceInterface({ aiState, onResponse, disabled }: VoiceI
 
   if (confirming) {
     return (
-      <div className="border-t border-gray-200 bg-white p-4 space-y-3">
-        <p className="text-sm font-medium text-gray-700">Is this what you said?</p>
-        <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-800 border border-gray-200">
+      <div className="border-t border-[#b8c5d8] bg-[#f4f4f5] p-4 space-y-3">
+        <p className="text-sm font-medium text-[#2b427f]">Is this what you said?</p>
+        <div className="p-3 bg-[#ece6bf] rounded-lg text-sm text-[#2b427f] border border-[#c9be86]">
           {finalTranscript}
         </div>
         <div className="flex gap-2">
           <button
             onClick={editResponse}
-            className="flex-1 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+            className="flex-1 py-2 border border-[#aeb8ca] text-[#3b5077] rounded-lg text-sm font-medium hover:bg-[#eaedf5] transition-colors"
           >
             Edit
           </button>
           <button
             onClick={confirmResponse}
-            className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+            className="flex-1 py-2 gd-button rounded-lg text-sm font-medium"
           >
             Confirm & Submit
           </button>
@@ -184,12 +224,12 @@ export default function VoiceInterface({ aiState, onResponse, disabled }: VoiceI
   }
 
   return (
-    <div className="border-t border-gray-200 bg-white p-6">
+    <div className="border-t border-[#b8c5d8] bg-[#f4f4f5] p-6">
       {/* Interim transcript preview */}
       {(isRecording && (interimTranscript || finalTranscript)) && (
-        <div className="mb-4 p-3 bg-gray-50 rounded-lg text-sm min-h-[3rem]">
-          <span className="text-gray-800">{finalTranscript}</span>
-          <span className="text-gray-400 italic">{interimTranscript}</span>
+        <div className="mb-4 p-3 bg-[#ece6bf] border border-[#c9be86] rounded-lg text-sm min-h-[3rem]">
+          <span className="text-[#2b427f]">{finalTranscript}</span>
+          <span className="text-[#667696] italic">{interimTranscript}</span>
         </div>
       )}
 
@@ -205,16 +245,28 @@ export default function VoiceInterface({ aiState, onResponse, disabled }: VoiceI
         >
           {isRecording ? <MicOff size={32} /> : <Mic size={32} />}
         </button>
-        <p className="text-sm text-gray-500 font-medium">
+        <p className="text-sm text-[#516079] font-medium">
           {isRecording ? 'Tap to stop' : STATE_LABELS[aiState]}
         </p>
         {!textFallback && (
-          <button
-            onClick={() => setTextFallback(true)}
-            className="text-xs text-gray-400 hover:text-gray-600 underline transition-colors"
-          >
-            Can&apos;t use mic? Type instead
-          </button>
+          <>
+            {allowTextInput && (
+              <button
+                onClick={() => setTextFallback(true)}
+                className="text-xs text-[#60728f] hover:text-[#2b427f] underline transition-colors"
+              >
+                Can&apos;t use mic? Type instead
+              </button>
+            )}
+            {micError && (
+              <p className="text-xs text-amber-600 text-center max-w-sm">{micError}</p>
+            )}
+            {!allowTextInput && (
+              <p className="text-xs text-[#60728f] text-center max-w-sm">
+                Voice-only mode is enabled by your teacher.
+              </p>
+            )}
+          </>
         )}
       </div>
     </div>
