@@ -2,11 +2,9 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
-  const router = useRouter()
   const supabase = createClient()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -26,8 +24,9 @@ export default function LoginPage() {
       return
     }
 
-    router.push('/classes')
-    router.refresh()
+    // Full-page navigation so the browser sends the new session cookie
+    // with the next request — router.push alone can race the cookie flush.
+    window.location.href = '/classes'
   }
 
   return (
