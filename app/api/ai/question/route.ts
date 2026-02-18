@@ -167,7 +167,9 @@ export async function POST(request: Request) {
       tracker.target_concepts[tracker.target_concepts.length - 1]
 
     const conceptGoalReached = coveredConcepts.length >= tracker.target_concepts.length
-    const safetyCapReached = question_number >= maxQuestions
+    // Use strict > so question_number === maxQuestions still returns the final question;
+    // the client hard-stops after the student answers it (nextQ > maxQuestions).
+    const safetyCapReached = question_number > maxQuestions
     const shouldFinish = conceptGoalReached || safetyCapReached
 
     const question = (parsed.question ?? rawText ?? '').trim()

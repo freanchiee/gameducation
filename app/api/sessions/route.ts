@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     // Validate access code → find active assessment
     const { data: assessment, error: assessmentError } = await supabase
       .from('assessments')
-      .select('id, allow_group, max_group_size, max_questions')
+      .select('id, allow_group, max_group_size, max_questions, title, topic')
       .eq('access_code', access_code.toUpperCase())
       .eq('status', 'active')
       .single()
@@ -135,7 +135,13 @@ export async function POST(request: Request) {
 
     participantId = participant.id
 
-    return NextResponse.json({ session_id: sessionId, participant_id: participantId })
+    return NextResponse.json({
+      session_id: sessionId,
+      participant_id: participantId,
+      assessment_title: assessment.title,
+      assessment_topic: assessment.topic,
+      max_questions: assessment.max_questions,
+    })
   } catch (err) {
     console.error('[/api/sessions]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

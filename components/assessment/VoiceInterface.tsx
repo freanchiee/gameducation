@@ -10,6 +10,10 @@ interface VoiceInterfaceProps {
   onResponse: (transcript: string) => void
   disabled: boolean
   allowTextInput: boolean
+  /** Called whenever the in-progress draft transcript changes (for parent display) */
+  onDraftChange?: (draft: string) => void
+  /** 'dark' styles the bar for the dark video-call session UI */
+  variant?: 'light' | 'dark'
 }
 
 declare global {
@@ -57,7 +61,10 @@ export default function VoiceInterface({
   onResponse,
   disabled,
   allowTextInput,
+  onDraftChange,
+  variant = 'light',
 }: VoiceInterfaceProps) {
+  const dk = variant === 'dark'
   const [isRecording, setIsRecording] = useState(false)
   const [interimTranscript, setInterimTranscript] = useState('')
   const [draftTranscript, setDraftTranscript] = useState('')
@@ -240,7 +247,9 @@ export default function VoiceInterface({
   }
 
   function updateDraftFromBuffers() {
-    setDraftTranscript(collectCombinedTranscript())
+    const combined = collectCombinedTranscript()
+    setDraftTranscript(combined)
+    onDraftChange?.(combined)
   }
 
   function startSilenceMonitor() {
@@ -447,6 +456,7 @@ export default function VoiceInterface({
     finalSegmentsRef.current = []
     interimSegmentRef.current = ''
     setDraftTranscript('')
+    onDraftChange?.('')
 
     if (!combined) {
       setMicError('No speech captured yet. Speak first, then submit.')
@@ -501,7 +511,7 @@ export default function VoiceInterface({
   const canSend = Boolean(currentTranscript.trim()) && !disabled
 
   return (
-    <div className="relative border-t border-[#b8c5d8] bg-[#f4f4f5] p-4 md:p-5">
+    <div className={`relative border-t p-4 md:p-5 ${dk ? 'border-white/10 bg-[#111827]' : 'border-[#b8c5d8] bg-[#f4f4f5]'}`}>
       {showMicSetup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
           <div className="w-full max-w-lg gd-surface p-6">
@@ -568,22 +578,22 @@ export default function VoiceInterface({
         </div>
       )}
 
-      {currentTranscript && (
+      {!dk && currentTranscript && (
         <div className="mx-auto mb-3 max-w-3xl rounded-xl border border-[#c9be86] bg-[#ece6bf] px-3 py-2 text-sm text-[#233a83]">
           {currentTranscript}
         </div>
       )}
 
       {autoPauseActive && (
-        <div className="mx-auto mb-3 max-w-3xl rounded-xl border border-[#c9be86] bg-[#ece6bf] px-3 py-2 text-xs text-[#4f5d79]">
+        <div className={`mx-auto mb-3 max-w-3xl rounded-xl border px-3 py-2 text-xs ${dk ? 'border-amber-500/20 bg-amber-500/5 text-amber-300/80' : 'border-[#c9be86] bg-[#ece6bf] text-[#4f5d79]'}`}>
           Silence detected. Auto-submit in {graceSecondsLeft}s unless you continue speaking.
         </div>
       )}
 
-      <div className="mx-auto flex w-full max-w-3xl items-center gap-2 rounded-[22px] border border-[#d7dbe4] bg-white px-2 py-2 shadow-sm">
+      <div className={`mx-auto flex w-full max-w-3xl items-center gap-2 rounded-[22px] border px-2 py-2 shadow-sm ${dk ? 'border-white/10 bg-[#0d1117]' : 'border-[#d7dbe4] bg-white'}`}>
         <button
           onClick={() => setShowMicSetup(true)}
-          className="h-10 w-10 rounded-full text-[#7283a1] transition hover:bg-[#f2f4f8]"
+          className={`h-10 w-10 rounded-full transition ${dk ? 'text-white/40 hover:bg-white/5' : 'text-[#7283a1] hover:bg-[#f2f4f8]'}`}
           aria-label="Open microphone setup"
           type="button"
         >
@@ -605,23 +615,23 @@ export default function VoiceInterface({
         </button>
 
         <div className="min-w-0 flex-1">
-          <div className="flex h-10 items-end gap-[3px] overflow-hidden rounded-md bg-[#fafbfd] px-2 py-1">
+          <div className={`flex h-10 items-end gap-[3px] overflow-hidden rounded-md px-2 py-1 ${dk ? 'bg-white/5' : 'bg-[#fafbfd]'}`}>
             {waveform.map((value, idx) => (
               <span
                 key={idx}
-                className={`w-[2px] rounded-full ${isRecording ? 'bg-[#1f2d4a]' : 'bg-[#c3cad8]'}`}
+                className={`w-[2px] rounded-full ${dk ? (isRecording ? 'bg-blue-400/70' : 'bg-white/15') : (isRecording ? 'bg-[#1f2d4a]' : 'bg-[#c3cad8]')}`}
                 style={{ height: `${Math.max(6, Math.round(value * 28))}px` }}
               />
             ))}
           </div>
         </div>
 
-        <div className="w-12 text-right text-sm font-medium text-[#4c5b79]">{formatSeconds(elapsedSeconds)}</div>
+        <div className={`w-12 text-right text-sm font-medium ${dk ? 'text-white/40' : 'text-[#4c5b79]'}`}>{formatSeconds(elapsedSeconds)}</div>
 
         <button
           onClick={() => void submitTranscript()}
           disabled={!canSend}
-          className="h-10 w-10 rounded-full bg-black text-white transition hover:bg-[#101010] disabled:cursor-not-allowed disabled:bg-[#c8cfdb]"
+          className={`h-10 w-10 rounded-full bg-black text-white transition hover:bg-[#101010] disabled:cursor-not-allowed ${dk ? 'disabled:bg-white/10' : 'disabled:bg-[#c8cfdb]'}`}
           aria-label="Submit voice response"
           type="button"
         >
@@ -630,19 +640,19 @@ export default function VoiceInterface({
       </div>
 
       <div className="mt-2 text-center">
-        <p className="text-xs text-[#667696]">
+        <p className={`text-xs ${dk ? 'text-white/30' : 'text-[#667696]'}`}>
           {isRecording ? 'Listening continuously' : aiState === 'idle' ? 'Tap mic to speak' : 'Waiting for AI'}
         </p>
         {micError && (
-          <p className="mt-1 text-xs text-amber-700">{micError}</p>
+          <p className="mt-1 text-xs text-amber-500">{micError}</p>
         )}
         {!allowTextInput && (
-          <p className="mt-1 text-xs text-[#60728f]">Voice-only mode is enabled by your teacher.</p>
+          <p className={`mt-1 text-xs ${dk ? 'text-white/25' : 'text-[#60728f]'}`}>Voice-only mode is enabled by your teacher.</p>
         )}
         {allowTextInput && !textFallback && (
           <button
             onClick={() => setTextFallback(true)}
-            className="mt-1 inline-flex items-center gap-1 text-xs text-[#60728f] underline transition-colors hover:text-[#2b427f]"
+            className={`mt-1 inline-flex items-center gap-1 text-xs underline transition-colors ${dk ? 'text-white/30 hover:text-white/60' : 'text-[#60728f] hover:text-[#2b427f]'}`}
           >
             <Settings2 size={12} />
             Can&apos;t use mic? Type instead

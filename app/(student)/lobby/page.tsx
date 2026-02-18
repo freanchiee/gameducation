@@ -29,12 +29,15 @@ export default function LobbyPage() {
       return
     }
 
-    // Store session token for this assessment (no auth required)
+    // Store session token and assessment info (no auth required)
     sessionStorage.setItem('voiceiq_session_id', data.session_id)
     sessionStorage.setItem('voiceiq_participant_id', data.participant_id)
     sessionStorage.setItem('voiceiq_student_name', name.trim())
+    sessionStorage.setItem('voiceiq_assessment_title', data.assessment_title ?? '')
+    sessionStorage.setItem('voiceiq_assessment_topic', data.assessment_topic ?? '')
+    sessionStorage.setItem('voiceiq_max_questions', String(data.max_questions ?? 6))
 
-    router.push(`/session/${data.session_id}`)
+    router.push(`/brief/${data.session_id}`)
   }
 
   return (
