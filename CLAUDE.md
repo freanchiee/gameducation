@@ -80,13 +80,17 @@ All tables have Row Level Security enabled. See migration file for policies.
 - **Phase 0** ✅ COMPLETE: Scaffold, types, Claude wrapper, prompts, DB migration
 - **Phase 1** ✅ COMPLETE: Auth pages (login, signup, reset-password), Supabase auth integration
 - **Phase 2** ✅ COMPLETE: Teacher dashboard
-  - ✅ Dashboard layout + nav
+  - ✅ Dashboard layout + nav — `components/dashboard/sidebar-nav.tsx`
   - ✅ Classes list page (`/classes`)
   - ✅ Create class UI (`/classes/new`)
+  - ✅ Class detail page (`/classes/[id]`) — shows assessments for the class
   - ✅ Assessments list page (`/assessments`)
   - ✅ Create assessment UI (`/assessments/new`) — `components/teacher/NewAssessmentForm.tsx`
+  - ✅ Assessment detail page (`/assessments/[id]`) — status toggle, access code, sessions list — `components/teacher/AssessmentActions.tsx`
   - ✅ Reports list page (`/reports`)
   - ✅ Evaluation detail page (`/reports/evaluation/[id]`) — `components/teacher/ReviewButton.tsx`
+  - ✅ Update-password page (`/update-password`) — password reset flow
+  - ✅ Env validation helper — `lib/supabase/env.ts`
 - **Phase 3** ✅ COMPLETE: Core assessment session (lobby, session, voice, results, all API routes)
 - **Phase 4** ❌ NOT STARTED: Group session mode
 - **Phase 5** ❌ NOT STARTED: PDF export, teacher score override, analytics
