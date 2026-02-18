@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function POST(request: Request) {
   try {
@@ -44,7 +45,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'session_id is required' }, { status: 400 })
     }
 
-    const supabase = await createClient()
+    // Students are unauthenticated — use admin client to bypass RLS for SELECT.
+    // Security boundary: caller must know the session UUID.
+    const supabase = createAdminClient()
 
     const { data: messages, error } = await supabase
       .from('messages')

@@ -97,7 +97,7 @@ export default function SessionPage() {
 
     if (!initialized.current) {
       initialized.current = true
-      startSession(sName, pId)
+      void resumeOrStart(sName, pId)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -119,6 +119,36 @@ export default function SessionPage() {
     } catch {
       setAllowTextInput(false)
     }
+  }
+
+  async function resumeOrStart(name: string, pId: string) {
+    try {
+      const res = await fetch(`/api/transcripts?session_id=${encodeURIComponent(sessionId)}`)
+      if (res.ok) {
+        const data = await res.json()
+        const existing: Message[] = data.messages ?? []
+        if (existing.length > 0) {
+          logDebug('resuming session', { messageCount: existing.length })
+          setMessages(existing)
+          const aiMessages = existing.filter((m) => m.role === 'ai')
+          setQuestionNumber(aiMessages.length)
+
+          const lastMsg = existing[existing.length - 1]
+          if (lastMsg.role === 'ai') {
+            // Student needs to respond to the last question
+            setAiState('speaking')
+            speakQuestion(lastMsg.content, () => setAiState('idle'))
+          } else {
+            // Student's last response was saved but AI reply wasn't — fetch next question
+            await fetchNextQuestion(name, pId, existing, aiMessages.length + 1)
+          }
+          return
+        }
+      }
+    } catch {
+      // Fall through to fresh start on any fetch error
+    }
+    startSession(name, pId)
   }
 
   async function startSession(name: string, pId: string) {
@@ -203,6 +233,18 @@ export default function SessionPage() {
       historySize: nextMessages.length,
     })
 
+    // Persist student message so the session can be resumed on refresh
+    void fetch('/api/transcripts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: sessionId,
+        participant_id: participantId || null,
+        role: 'student',
+        content: transcript,
+      }),
+    })
+
     const nextQ = questionNumber + 1
     if (nextQ > maxQuestions) {
       await finishSession(nextMessages, nextQ)
@@ -210,15 +252,25 @@ export default function SessionPage() {
       return
     }
 
+    await fetchNextQuestion(studentName, participantId, nextMessages, nextQ)
+    requestInFlightRef.current = false
+  }
+
+  async function fetchNextQuestion(
+    name: string,
+    pId: string,
+    history: Message[],
+    nextQ: number,
+  ) {
     try {
       const res = await fetch('/api/ai/question', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: sessionId,
-          participant_id: participantId,
-          conversation_history: nextMessages,
-          student_name: studentName,
+          participant_id: pId,
+          conversation_history: history,
+          student_name: name,
           question_number: nextQ,
           concept_tracker: conceptTracker,
         }),
@@ -241,7 +293,7 @@ export default function SessionPage() {
       if (data.concept_tracker) setConceptTracker(data.concept_tracker as ConceptTracker)
       if (data.concept_focus) setConceptFocus(String(data.concept_focus))
       if (data.should_finish) {
-        await finishSession(nextMessages, nextQ)
+        await finishSession(history, nextQ)
         return
       }
       const aiMessage: Message = {
@@ -254,7 +306,7 @@ export default function SessionPage() {
         timestamp: new Date().toISOString(),
       }
 
-      setMessages([...nextMessages, aiMessage])
+      setMessages([...history, aiMessage])
       setQuestionNumber(nextQ)
       setAiState('speaking')
 
@@ -262,8 +314,6 @@ export default function SessionPage() {
     } catch {
       setError('Connection issue. Please wait a moment then try again.')
       setAiState('idle')
-    } finally {
-      requestInFlightRef.current = false
     }
   }
 

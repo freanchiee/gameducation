@@ -172,16 +172,15 @@ export async function POST(request: Request) {
 
     const question = (parsed.question ?? rawText ?? '').trim()
 
-    // Store AI message in DB
-    if (participant_id) {
-      await supabase.from('messages').insert({
-        session_id,
-        participant_id: null,
-        role: 'ai',
-        content: question,
-        timestamp: new Date().toISOString(),
-      })
-    }
+    // Store AI message in DB. AI messages have no participant (participant_id is always null).
+    // We insert whenever we have a session_id, regardless of whether a participant exists.
+    await supabase.from('messages').insert({
+      session_id,
+      participant_id: null,
+      role: 'ai',
+      content: question,
+      timestamp: new Date().toISOString(),
+    })
 
     console.log('[/api/ai/question] success', {
       reqId,
