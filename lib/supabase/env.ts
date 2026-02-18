@@ -5,9 +5,21 @@ function isHttpUrl(value: string) {
   return value.startsWith('http://') || value.startsWith('https://')
 }
 
+function isSupabaseApiUrl(value: string) {
+  try {
+    const { hostname } = new URL(value)
+    return hostname.endsWith('.supabase.co')
+  } catch {
+    return false
+  }
+}
+
 export function hasSupabaseEnv() {
   return Boolean(
-    supabaseUrl && supabaseAnonKey && isHttpUrl(supabaseUrl)
+    supabaseUrl &&
+      supabaseAnonKey &&
+      isHttpUrl(supabaseUrl) &&
+      isSupabaseApiUrl(supabaseUrl)
   )
 }
 
@@ -21,6 +33,12 @@ export function getSupabaseEnv() {
   if (!isHttpUrl(supabaseUrl)) {
     throw new Error(
       'NEXT_PUBLIC_SUPABASE_URL must be a valid http(s) URL. Check your .env.local values.'
+    )
+  }
+
+  if (!isSupabaseApiUrl(supabaseUrl)) {
+    throw new Error(
+      'NEXT_PUBLIC_SUPABASE_URL must be your Supabase API URL (https://<project-ref>.supabase.co), not a dashboard URL.'
     )
   }
 
