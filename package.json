@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "seed:test-user": "node --env-file=.env scripts/create-test-user.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",

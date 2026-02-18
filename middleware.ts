@@ -9,6 +9,13 @@ type CookieToSet = { name: string; value: string; options?: any }
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
+  const { pathname } = request.nextUrl
+  const isTeacherRoute = TEACHER_ROUTES.some((r) => pathname.startsWith(r))
+  const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r))
+
+  if (!isTeacherRoute && !isPublicRoute) {
+    return supabaseResponse
+  }
 
   if (!hasSupabaseEnv()) {
     return supabaseResponse
@@ -37,14 +44,18 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  const { pathname } = request.nextUrl
-
-  const isTeacherRoute = TEACHER_ROUTES.some((r) => pathname.startsWith(r))
-  const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r))
+  let user: { id: string } | null = null
+  try {
+    const {
+      data: { user: currentUser },
+    } = await supabase.auth.getUser()
+    user = currentUser
+  } catch {
+    if (isTeacherRoute) {
+      return NextResponse.redirect(new URL('/login', request.url))
+    }
+    return supabaseResponse
+  }
 
   if (isTeacherRoute && !user) {
     return NextResponse.redirect(new URL('/login', request.url))
