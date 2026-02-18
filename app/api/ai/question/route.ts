@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { buildAssessorPrompt } from '@/lib/prompts/assessor'
 import { claudeClient } from '@/lib/claude'
 import type { Message } from '@/lib/types'
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    const supabase = await createClient()
+    const supabase = createAdminClient()
 
     // Fetch session + assessment config
     const { data: session, error: sessionError } = await supabase

@@ -21,6 +21,53 @@ export default function SessionPage() {
   const [error, setError] = useState<string | null>(null)
   const initialized = useRef(false)
 
+  function speakQuestion(text: string, onDone: () => void) {
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      onDone()
+      return
+    }
+
+    const synth = window.speechSynthesis
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.rate = 0.95
+    utterance.pitch = 1
+    utterance.volume = 1
+
+    const applyPreferredVoice = () => {
+      const voices = synth.getVoices()
+      if (!voices.length) return
+
+      const preferred =
+        voices.find((v) => /Google US English|Samantha|Daniel|Microsoft/i.test(v.name)) ??
+        voices.find((v) => v.lang.toLowerCase().startsWith('en')) ??
+        voices[0]
+
+      if (preferred) utterance.voice = preferred
+    }
+
+    utterance.onend = onDone
+    utterance.onerror = onDone
+
+    synth.cancel()
+    applyPreferredVoice()
+
+    if (!utterance.voice && synth.getVoices().length === 0) {
+      const previous = synth.onvoiceschanged
+      synth.onvoiceschanged = () => {
+        applyPreferredVoice()
+        synth.speak(utterance)
+        synth.onvoiceschanged = previous ?? null
+      }
+      setTimeout(() => {
+        if (synth.speaking) return
+        synth.speak(utterance)
+      }, 150)
+      return
+    }
+
+    synth.speak(utterance)
+  }
+
   useEffect(() => {
     const sName = sessionStorage.getItem('voiceiq_student_name') ?? 'Student'
     const pId = sessionStorage.getItem('voiceiq_participant_id') ?? ''
@@ -86,13 +133,7 @@ export default function SessionPage() {
       setAiState('speaking')
 
       // Text-to-speech
-      if (window.speechSynthesis) {
-        const utt = new SpeechSynthesisUtterance(data.question)
-        utt.onend = () => setAiState('idle')
-        window.speechSynthesis.speak(utt)
-      } else {
-        setAiState('idle')
-      }
+      speakQuestion(data.question, () => setAiState('idle'))
     } catch {
       setError('Failed to start session. Please refresh and try again.')
       setAiState('idle')
@@ -153,13 +194,7 @@ export default function SessionPage() {
       setQuestionNumber(nextQ)
       setAiState('speaking')
 
-      if (window.speechSynthesis) {
-        const utt = new SpeechSynthesisUtterance(data.question)
-        utt.onend = () => setAiState('idle')
-        window.speechSynthesis.speak(utt)
-      } else {
-        setAiState('idle')
-      }
+      speakQuestion(data.question, () => setAiState('idle'))
     } catch {
       setError('Connection issue. Please wait a moment then try again.')
       setAiState('idle')

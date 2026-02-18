@@ -107,7 +107,13 @@ export async function POST(request: Request) {
     participant = insertWithPermissions.data
     participantError = insertWithPermissions.error as any
 
-    if (participantError && /column .* does not exist/i.test(participantError.message ?? '')) {
+    const missingColumnError =
+      participantError &&
+      ((participantError as any).code === 'PGRST204' ||
+        /column .* does not exist/i.test(participantError.message ?? '') ||
+        /could not find .* column/i.test(participantError.message ?? ''))
+
+    if (missingColumnError) {
       const legacyInsert = await supabase
         .from('session_participants')
         .insert({

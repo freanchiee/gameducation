@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Mic, MicOff, Send, AlertCircle } from 'lucide-react'
+import { Mic, MicOff, Send, AlertCircle, Settings2, X } from 'lucide-react'
 
 type AIState = 'idle' | 'listening' | 'processing' | 'speaking'
 
@@ -67,6 +67,12 @@ export default function VoiceInterface({
   const [micError, setMicError] = useState<string | null>(null)
   const [textFallback, setTextFallback] = useState(false)
   const [textInput, setTextInput] = useState('')
+  const [showMicSetup, setShowMicSetup] = useState(false)
+  const [micPermission, setMicPermission] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown')
+  const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([])
+  const [selectedDeviceId, setSelectedDeviceId] = useState('')
+  const [checkingMic, setCheckingMic] = useState(false)
+  const [micCheckResult, setMicCheckResult] = useState<string | null>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
 
   const speechSupported =
@@ -80,6 +86,62 @@ export default function VoiceInterface({
     }
   }, [allowTextInput, speechSupported])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!sessionStorage.getItem('voiceiq_mic_setup_done')) {
+      setShowMicSetup(true)
+    }
+    void refreshMicDiagnostics()
+  }, [])
+
+  async function refreshMicDiagnostics() {
+    try {
+      if (navigator.permissions?.query) {
+        const result = await navigator.permissions.query({
+          name: 'microphone' as PermissionName,
+        })
+        setMicPermission(result.state as 'granted' | 'denied' | 'prompt')
+      }
+    } catch {
+      setMicPermission('unknown')
+    }
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const inputs = devices.filter((d) => d.kind === 'audioinput')
+      setAudioInputs(inputs)
+      if (!selectedDeviceId && inputs[0]?.deviceId) {
+        setSelectedDeviceId(inputs[0].deviceId)
+      }
+    } catch {
+      setAudioInputs([])
+    }
+  }
+
+  async function runMicCheck() {
+    setCheckingMic(true)
+    setMicCheckResult(null)
+    setMicError(null)
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true,
+      })
+      stream.getTracks().forEach((track) => track.stop())
+      setMicPermission('granted')
+      setMicCheckResult('Microphone is ready.')
+      sessionStorage.setItem('voiceiq_mic_setup_done', '1')
+      setTimeout(() => setShowMicSetup(false), 500)
+      await refreshMicDiagnostics()
+    } catch {
+      setMicPermission('denied')
+      setMicCheckResult('Microphone check failed. Allow microphone access and try again.')
+      setMicError('Microphone is blocked or unavailable.')
+    } finally {
+      setCheckingMic(false)
+    }
+  }
+
   async function startRecording() {
     if (!speechSupported) {
       if (allowTextInput) setTextFallback(true)
@@ -87,11 +149,14 @@ export default function VoiceInterface({
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true,
+      })
       stream.getTracks().forEach((track) => track.stop())
     } catch {
       setMicError('Microphone permission is blocked. Allow mic access in browser settings.')
       if (allowTextInput) setTextFallback(true)
+      setShowMicSetup(true)
       return
     }
 
@@ -224,7 +289,78 @@ export default function VoiceInterface({
   }
 
   return (
-    <div className="border-t border-[#b8c5d8] bg-[#f4f4f5] p-6">
+    <div className="border-t border-[#b8c5d8] bg-[#f4f4f5] p-6 relative">
+      {showMicSetup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4">
+          <div className="w-full max-w-lg gd-surface p-6">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-[#223a83]">Microphone Setup</h3>
+                <p className="text-sm text-[#516079] mt-1">
+                  Check permission and input device before starting.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowMicSetup(false)}
+                className="text-[#60728f] hover:text-[#223a83]"
+                aria-label="Close microphone setup"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="text-sm text-[#3b5077]">
+                Permission:
+                {' '}
+                <span className="font-medium">{micPermission}</span>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-[#223a83] mb-1">Input device</label>
+                <select
+                  value={selectedDeviceId}
+                  onChange={(e) => setSelectedDeviceId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg gd-input text-sm"
+                >
+                  {audioInputs.length === 0 ? (
+                    <option value="">Default microphone</option>
+                  ) : (
+                    audioInputs.map((d, idx) => (
+                      <option key={d.deviceId || idx} value={d.deviceId}>
+                        {d.label || `Microphone ${idx + 1}`}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              {micCheckResult && (
+                <p className={`text-sm ${micCheckResult.includes('ready') ? 'text-emerald-700' : 'text-amber-700'}`}>
+                  {micCheckResult}
+                </p>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={runMicCheck}
+                  disabled={checkingMic}
+                  className="px-4 py-2 rounded-lg gd-button text-sm font-medium disabled:opacity-60"
+                >
+                  {checkingMic ? 'Checking...' : 'Run Mic Check'}
+                </button>
+                <button
+                  onClick={() => setShowMicSetup(false)}
+                  className="px-4 py-2 rounded-lg border border-[#aeb8ca] text-[#3b5077] text-sm"
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Interim transcript preview */}
       {(isRecording && (interimTranscript || finalTranscript)) && (
         <div className="mb-4 p-3 bg-[#ece6bf] border border-[#c9be86] rounded-lg text-sm min-h-[3rem]">
@@ -266,6 +402,13 @@ export default function VoiceInterface({
                 Voice-only mode is enabled by your teacher.
               </p>
             )}
+            <button
+              onClick={() => setShowMicSetup(true)}
+              className="text-xs text-[#60728f] hover:text-[#2b427f] underline transition-colors inline-flex items-center gap-1"
+            >
+              <Settings2 size={12} />
+              Mic setup
+            </button>
           </>
         )}
       </div>

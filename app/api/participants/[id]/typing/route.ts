@@ -12,11 +12,33 @@ export async function GET(
     const sessionId = searchParams.get('session_id')
 
     const admin = createAdminClient()
-    const { data: participant, error } = await admin
+    let { data: participant, error } = await admin
       .from('session_participants')
       .select('id, session_id, allow_text_input')
       .eq('id', participantId)
       .single()
+
+    const missingColumnError =
+      error &&
+      ((error as any).code === 'PGRST204' ||
+        /column .* does not exist/i.test(error.message ?? '') ||
+        /could not find .* column/i.test(error.message ?? ''))
+
+    if (missingColumnError) {
+      const legacyParticipant = await admin
+        .from('session_participants')
+        .select('id, session_id')
+        .eq('id', participantId)
+        .single()
+
+      participant = legacyParticipant.data
+        ? {
+            ...legacyParticipant.data,
+            allow_text_input: false,
+          }
+        : null
+      error = legacyParticipant.error as any
+    }
 
     if (error || !participant) {
       return NextResponse.json({ error: 'Participant not found' }, { status: 404 })

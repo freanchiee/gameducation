@@ -57,7 +57,13 @@ export async function GET(
       .order('joined_at', { ascending: false })
 
     // Backward-compatible fallback when new columns are missing.
-    if (participantsError && /column .* does not exist/i.test(participantsError.message ?? '')) {
+    const missingColumnError =
+      participantsError &&
+      ((participantsError as any).code === 'PGRST204' ||
+        /column .* does not exist/i.test(participantsError.message ?? '') ||
+        /could not find .* column/i.test(participantsError.message ?? ''))
+
+    if (missingColumnError) {
       const legacyParticipants = await admin
         .from('session_participants')
         .select('id, session_id, joined_at')
