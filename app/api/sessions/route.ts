@@ -83,7 +83,16 @@ export async function POST(request: Request) {
     }
 
     // Add participant to session
-    const { data: participant, error: participantError } = await supabase
+    // Backward-compatible insert:
+    // if new columns are not migrated yet, retry with legacy shape.
+    let participant:
+      | {
+          id: string
+        }
+      | null = null
+    let participantError: { message?: string } | null = null
+
+    const insertWithPermissions = await supabase
       .from('session_participants')
       .insert({
         session_id: sessionId,
@@ -94,6 +103,24 @@ export async function POST(request: Request) {
       })
       .select('id')
       .single()
+
+    participant = insertWithPermissions.data
+    participantError = insertWithPermissions.error as any
+
+    if (participantError && /column .* does not exist/i.test(participantError.message ?? '')) {
+      const legacyInsert = await supabase
+        .from('session_participants')
+        .insert({
+          session_id: sessionId,
+          student_id: studentId,
+          joined_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single()
+
+      participant = legacyInsert.data
+      participantError = legacyInsert.error as any
+    }
 
     if (participantError || !participant) {
       console.error('[/api/sessions] create participant failed', participantError)

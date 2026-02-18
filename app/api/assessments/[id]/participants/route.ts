@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function GET(
   _request: Request,
@@ -31,17 +32,68 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { data: participants, error: participantsError } = await supabase
+    const admin = createAdminClient()
+
+    const { data: sessions, error: sessionsError } = await admin
+      .from('sessions')
+      .select('id, status')
+      .eq('assessment_id', assessmentId)
+
+    if (sessionsError) {
+      return NextResponse.json({ error: 'Failed to fetch participants' }, { status: 500 })
+    }
+
+    if (!sessions || sessions.length === 0) {
+      return NextResponse.json({ participants: [] })
+    }
+
+    const sessionStatusMap = new Map(sessions.map((s) => [s.id, s.status]))
+    const sessionIds = sessions.map((s) => s.id)
+
+    const { data: participants, error: participantsError } = await admin
       .from('session_participants')
-      .select('id, session_id, student_name, allow_text_input, joined_at, sessions!inner(assessment_id, status)')
-      .eq('sessions.assessment_id', assessmentId)
+      .select('id, session_id, student_name, allow_text_input, joined_at')
+      .in('session_id', sessionIds)
       .order('joined_at', { ascending: false })
+
+    // Backward-compatible fallback when new columns are missing.
+    if (participantsError && /column .* does not exist/i.test(participantsError.message ?? '')) {
+      const legacyParticipants = await admin
+        .from('session_participants')
+        .select('id, session_id, joined_at')
+        .in('session_id', sessionIds)
+        .order('joined_at', { ascending: false })
+
+      if (legacyParticipants.error) {
+        return NextResponse.json({ error: 'Failed to fetch participants' }, { status: 500 })
+      }
+
+      const normalizedLegacy = (legacyParticipants.data ?? []).map((p) => ({
+        id: p.id,
+        session_id: p.session_id,
+        student_name: null,
+        allow_text_input: false,
+        joined_at: p.joined_at,
+        sessions: {
+          status: sessionStatusMap.get(p.session_id) ?? 'active',
+        },
+      }))
+
+      return NextResponse.json({ participants: normalizedLegacy })
+    }
 
     if (participantsError) {
       return NextResponse.json({ error: 'Failed to fetch participants' }, { status: 500 })
     }
 
-    return NextResponse.json({ participants: participants ?? [] })
+    const normalized = (participants ?? []).map((p) => ({
+      ...p,
+      sessions: {
+        status: sessionStatusMap.get(p.session_id) ?? 'active',
+      },
+    }))
+
+    return NextResponse.json({ participants: normalized })
   } catch (err) {
     console.error('[/api/assessments/[id]/participants]', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
