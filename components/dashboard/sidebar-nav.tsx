@@ -2,9 +2,10 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart3, BookOpenCheck, LogOut, Sparkles, ClipboardList } from 'lucide-react'
+import { BarChart3, BookOpenCheck, LogOut, Sparkles, ClipboardList, LayoutDashboard } from 'lucide-react'
 
 const NAV_ITEMS = [
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/classes', label: 'Classes', icon: BookOpenCheck },
   { href: '/assessments', label: 'Assessments', icon: ClipboardList },
   { href: '/reports', label: 'Reports', icon: BarChart3 },

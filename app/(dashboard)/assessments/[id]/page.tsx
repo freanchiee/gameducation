@@ -44,6 +44,13 @@ export default async function AssessmentDetailPage({
     .order('started_at', { ascending: false })
     .limit(20)
 
+  const { data: materials, error: materialsError } = await supabase
+    .from('learning_materials')
+    .select('id, title, type, processing_status, show_during_assessment, created_at')
+    .eq('assessment_id', params.id)
+    .order('display_order', { ascending: true })
+    .limit(20)
+
   const cls = assessment.classes as any
   const status = assessment.status as AssessmentStatus
   const statusConf = STATUS_CONFIG[status]
@@ -99,6 +106,24 @@ export default async function AssessmentDetailPage({
             <div>
               <dt className="text-gray-400">Questions</dt>
               <dd className="font-medium text-gray-900">{assessment.max_questions}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-400">Mode</dt>
+              <dd className="font-medium text-gray-900">
+                {(assessment as any).assessment_mode === 'multimodal' ? 'Multimodal' : 'Voice'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-gray-400">Tab lock</dt>
+              <dd className="font-medium text-gray-900">
+                {(assessment as any).tab_lock_enabled ? 'Enabled' : 'Disabled'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-gray-400">Webcam proctoring</dt>
+              <dd className="font-medium text-gray-900">
+                {(assessment as any).proctoring_enabled ? 'Enabled' : 'Disabled'}
+              </dd>
             </div>
             <div>
               <dt className="text-gray-400">Criteria</dt>
@@ -195,6 +220,54 @@ export default async function AssessmentDetailPage({
           </div>
         )}
       </div>
+
+      {(assessment as any).assessment_mode === 'multimodal' && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mt-6">
+          <div className="px-5 py-4 border-b border-gray-100">
+            <h2 className="text-sm font-semibold text-gray-700">
+              Learning Materials
+              {materials && materials.length > 0 && (
+                <span className="ml-2 text-xs font-normal text-gray-400">{materials.length} total</span>
+              )}
+            </h2>
+          </div>
+          {materialsError ? (
+            <div className="px-5 py-4 text-sm text-amber-700 bg-amber-50">
+              Could not load learning materials. Run multimodal migration `003_multimodal_assessment_foundation.sql`.
+            </div>
+          ) : materials && materials.length > 0 ? (
+            <ul className="divide-y divide-gray-50">
+              {materials.map((m) => (
+                <li key={m.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{m.title}</p>
+                    <p className="text-xs text-gray-500">{m.type}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={[
+                        'px-2 py-0.5 text-xs rounded-full',
+                        m.processing_status === 'ready'
+                          ? 'bg-green-100 text-green-700'
+                          : m.processing_status === 'error'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-gray-100 text-gray-700',
+                      ].join(' ')}
+                    >
+                      {m.processing_status}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      {m.show_during_assessment ? 'Shown in session' : 'Hidden'}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="px-5 py-5 text-sm text-gray-500">No learning materials yet.</div>
+          )}
+        </div>
+      )}
 
       <div className="mt-6">
         <TypingPermissions assessmentId={assessment.id} />

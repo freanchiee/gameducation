@@ -25,7 +25,7 @@ export default async function NewAssessmentPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">New Assessment</h1>
           <p className="text-gray-500 mt-0.5 text-sm">
-            Configure an AI oral assessment for your class
+            Choose Standard or Multimodal mode, then configure your assessment
           </p>
         </div>
       </div>

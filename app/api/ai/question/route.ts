@@ -35,6 +35,52 @@ function extractJsonObject(text: string) {
   return text.slice(start, end + 1)
 }
 
+type MediaDirective = {
+  type: 'image' | 'video' | 'table' | 'simulation'
+  material_id?: string
+  url?: string
+  start?: number
+  end?: number
+  context?: string
+}
+
+function parseMediaDirectives(text: string) {
+  const directives: MediaDirective[] = []
+
+  const imageRe = /\[SHOW_IMAGE:\s*material_id=([^,\]]+)(?:,\s*context=['"]([^'"]+)['"])?\s*\]/g
+  const videoRe = /\[SHOW_VIDEO:\s*material_id=([^,\]]+)(?:,\s*start=(\d+))?(?:,\s*end=(\d+))?\s*\]/g
+  const tableRe = /\[SHOW_TABLE:\s*material_id=([^,\]]+)(?:,\s*context=['"]([^'"]+)['"])?\s*\]/g
+  const simRe = /\[EMBED_SIMULATION:\s*url=([^\]]+)\]/g
+
+  let m: RegExpExecArray | null
+  while ((m = imageRe.exec(text)) !== null) {
+    directives.push({ type: 'image', material_id: m[1]?.trim(), context: m[2]?.trim() })
+  }
+  while ((m = videoRe.exec(text)) !== null) {
+    directives.push({
+      type: 'video',
+      material_id: m[1]?.trim(),
+      start: m[2] ? Number(m[2]) : undefined,
+      end: m[3] ? Number(m[3]) : undefined,
+    })
+  }
+  while ((m = tableRe.exec(text)) !== null) {
+    directives.push({ type: 'table', material_id: m[1]?.trim(), context: m[2]?.trim() })
+  }
+  while ((m = simRe.exec(text)) !== null) {
+    directives.push({ type: 'simulation', url: m[1]?.trim() })
+  }
+
+  const cleaned = text
+    .replace(imageRe, '')
+    .replace(videoRe, '')
+    .replace(tableRe, '')
+    .replace(simRe, '')
+    .trim()
+
+  return { cleanedQuestion: cleaned, directives }
+}
+
 export async function POST(request: Request) {
   const startedAt = Date.now()
   const reqId = Math.random().toString(36).slice(2, 10)
@@ -63,11 +109,21 @@ export async function POST(request: Request) {
     const supabase = createAdminClient()
 
     // Fetch session + assessment config
-    const { data: session, error: sessionError } = await supabase
+    let { data: session, error: sessionError } = await supabase
       .from('sessions')
-      .select('*, assessments(topic, year_group, system_prompt, topic_context, max_questions, criteria)')
+      .select('*, assessments(id, topic, year_group, system_prompt, topic_context, max_questions, criteria, assessment_mode)')
       .eq('id', session_id)
       .single()
+
+    if (sessionError && /assessment_mode|PGRST204|column/i.test(sessionError.message ?? '')) {
+      const fallback = await supabase
+        .from('sessions')
+        .select('*, assessments(id, topic, year_group, system_prompt, topic_context, max_questions, criteria)')
+        .eq('id', session_id)
+        .single()
+      session = fallback.data as typeof session
+      sessionError = fallback.error
+    }
 
     if (sessionError || !session) {
       console.warn('[/api/ai/question] session lookup failed', { reqId, sessionError })
@@ -80,6 +136,28 @@ export async function POST(request: Request) {
     }
 
     const assessment = session.assessments
+    const isMultimodal = (assessment as any).assessment_mode === 'multimodal'
+
+    let multimodalSummary = ''
+    if (isMultimodal) {
+      const { data: materials, error: materialsError } = await supabase
+        .from('learning_materials')
+        .select('id, title, type, processing_status, show_during_assessment, extracted_text')
+        .eq('assessment_id', assessment.id)
+        .eq('show_during_assessment', true)
+        .order('display_order', { ascending: true })
+        .limit(12)
+
+      if (!materialsError) {
+        multimodalSummary = (materials ?? [])
+          .map((m) => {
+            const textPreview = (m.extracted_text ?? '').replace(/\s+/g, ' ').slice(0, 220)
+            return `- [${m.id}] ${m.title} (${m.type}, ${m.processing_status}) ${textPreview}`
+          })
+          .join('\n')
+      }
+    }
+
     const maxQuestions = assessment.max_questions ?? 6
     const tracker: ConceptTracker = concept_tracker && Array.isArray(concept_tracker.target_concepts)
       ? {
@@ -104,6 +182,8 @@ export async function POST(request: Request) {
       teacherContext: assessment.topic_context ?? '',
       questionNumber: question_number,
       maxQuestions: assessment.max_questions ?? 6,
+      multimodalSummary,
+      multimodalMode: isMultimodal,
       customInstructions: assessment.system_prompt ?? '',
     })
 
@@ -172,7 +252,9 @@ export async function POST(request: Request) {
     const safetyCapReached = question_number > maxQuestions
     const shouldFinish = conceptGoalReached || safetyCapReached
 
-    const question = (parsed.question ?? rawText ?? '').trim()
+    const aiOutput = (parsed.question ?? rawText ?? '').trim()
+    const { cleanedQuestion, directives } = parseMediaDirectives(aiOutput)
+    const question = cleanedQuestion || aiOutput
 
     // Store AI message in DB. AI messages have no participant (participant_id is always null).
     // We insert whenever we have a session_id, regardless of whether a participant exists.
@@ -191,10 +273,13 @@ export async function POST(request: Request) {
       concept_focus: conceptFocus,
       covered_count: coveredConcepts.length,
       should_finish: shouldFinish,
+      directives_count: directives.length,
     })
 
     return NextResponse.json({
       question,
+      media_directives: directives,
+      assessment_mode: (assessment as any).assessment_mode ?? 'voice',
       max_questions: maxQuestions,
       concept_tracker: {
         target_concepts: tracker.target_concepts,

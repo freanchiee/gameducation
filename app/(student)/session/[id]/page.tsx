@@ -7,10 +7,28 @@ import VoiceInterface from '@/components/assessment/VoiceInterface'
 import type { Message } from '@/lib/types'
 
 type AIState = 'idle' | 'listening' | 'processing' | 'speaking'
+type AssessmentMode = 'voice' | 'multimodal'
 type ConceptTracker = {
   target_concepts: string[]
   covered_concepts: string[]
   current_concept: string
+}
+type MediaDirective = {
+  type: 'image' | 'video' | 'table' | 'simulation'
+  material_id?: string
+  url?: string
+  start?: number
+  end?: number
+  context?: string
+}
+type SessionMaterial = {
+  id: string
+  title: string
+  type: string
+  extracted_text: string | null
+  material_data: Record<string, unknown>
+  media_urls: string[]
+  signed_url: string | null
 }
 
 const THEME_KEY = 'voiceiq_ui_theme'
@@ -18,6 +36,23 @@ const THEME_KEY = 'voiceiq_ui_theme'
 function formatSeconds(s: number) {
   const m = Math.floor(s / 60)
   return `${m}:${(s % 60).toString().padStart(2, '0')}`
+}
+
+function getYoutubeEmbedUrl(input: string) {
+  try {
+    const u = new URL(input)
+    if (u.hostname.includes('youtu.be')) {
+      const id = u.pathname.replace('/', '')
+      return id ? `https://www.youtube.com/embed/${id}` : input
+    }
+    if (u.hostname.includes('youtube.com')) {
+      const id = u.searchParams.get('v')
+      return id ? `https://www.youtube.com/embed/${id}` : input
+    }
+    return input
+  } catch {
+    return input
+  }
 }
 
 // ── Animated orb ────────────────────────────────────────────────────────────
@@ -100,6 +135,10 @@ export default function SessionPage() {
   const [questionNumber, setQuestionNumber] = useState(1)
   const [maxQuestions, setMaxQuestions] = useState(6)
   const [conceptTracker, setConceptTracker] = useState<ConceptTracker | null>(null)
+  const [assessmentMode, setAssessmentMode] = useState<AssessmentMode>('voice')
+  const [materialsById, setMaterialsById] = useState<Record<string, SessionMaterial>>({})
+  const [materialsLoaded, setMaterialsLoaded] = useState(false)
+  const [currentDirective, setCurrentDirective] = useState<MediaDirective | null>(null)
   const [studentName, setStudentName] = useState('')
   const [participantId, setParticipantId] = useState('')
   const [allowTextInput, setAllowTextInput] = useState(false)
@@ -176,6 +215,36 @@ export default function SessionPage() {
     console.log('[session-debug]', line, meta ?? '')
     if (!debugEnabled) return
     setDebugEvents((prev) => [...prev.slice(-14), meta ? `${line} ${JSON.stringify(meta)}` : line])
+  }
+
+  async function loadSessionMaterials(pId: string) {
+    if (!sessionId || !pId || materialsLoaded) return
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/materials?participant_id=${encodeURIComponent(pId)}`)
+      if (!res.ok) return
+      const data = await res.json()
+      const next: Record<string, SessionMaterial> = {}
+      for (const material of (data.materials ?? []) as SessionMaterial[]) {
+        next[material.id] = material
+      }
+      setMaterialsById(next)
+      setMaterialsLoaded(true)
+      logDebug('materials loaded', { count: Object.keys(next).length })
+    } catch {
+      logDebug('materials load failed')
+    }
+  }
+
+  function applyQuestionMetadata(
+    mode: AssessmentMode,
+    directives: MediaDirective[] | undefined,
+    pId: string
+  ) {
+    setAssessmentMode(mode)
+    setCurrentDirective(directives && directives.length > 0 ? directives[0] : null)
+    if (mode === 'multimodal') {
+      void loadSessionMaterials(pId)
+    }
   }
 
   async function loadTypingPermission(pId: string) {
@@ -257,6 +326,11 @@ export default function SessionPage() {
       })
       if (!res.ok) throw new Error(`${res.status}`)
       const data = await res.json()
+      applyQuestionMetadata(
+        (data.assessment_mode ?? 'voice') as AssessmentMode,
+        data.media_directives as MediaDirective[] | undefined,
+        pId
+      )
       setMessages([{ id: crypto.randomUUID(), session_id: sessionId, participant_id: null, role: 'ai', content: data.question, audio_url: null, timestamp: new Date().toISOString() }])
       setMaxQuestions(data.max_questions ?? 6)
       if (data.concept_tracker) setConceptTracker(data.concept_tracker as ConceptTracker)
@@ -304,6 +378,11 @@ export default function SessionPage() {
       })
       if (!res.ok) throw new Error(`${res.status}`)
       const data = await res.json()
+      applyQuestionMetadata(
+        (data.assessment_mode ?? 'voice') as AssessmentMode,
+        data.media_directives as MediaDirective[] | undefined,
+        pId
+      )
       if (data.concept_tracker) setConceptTracker(data.concept_tracker as ConceptTracker)
       if (data.should_finish) { await finishSession(history, nextQ); return }
 
@@ -359,6 +438,96 @@ export default function SessionPage() {
   const hintText = dk ? 'text-white/20' : 'text-gray-300'
 
   const webcamBorder = dk ? 'border-white/15' : 'border-gray-300'
+  const panelCard = dk ? 'border border-white/10 bg-white/5' : 'border border-gray-200 bg-white'
+  const panelMuted = dk ? 'text-white/50' : 'text-gray-500'
+  const panelHeading = dk ? 'text-white/85' : 'text-gray-900'
+  const panelBg = dk ? 'bg-black/20' : 'bg-gray-50'
+
+  const activeMaterial = currentDirective?.material_id ? materialsById[currentDirective.material_id] : null
+  const fallbackUrl =
+    activeMaterial?.signed_url ||
+    currentDirective?.url ||
+    activeMaterial?.media_urls?.[0] ||
+    ((activeMaterial?.material_data?.url as string | undefined) ?? null)
+  const viewerTitle = activeMaterial?.title ?? 'Session material'
+  const viewerContext = currentDirective?.context ?? ''
+
+  function renderMediaContent() {
+    if (!currentDirective) {
+      return (
+        <div className={`rounded-xl p-4 text-sm ${panelBg} ${panelMuted}`}>
+          The AI will surface visuals here when needed.
+        </div>
+      )
+    }
+
+    if (!activeMaterial && !currentDirective.url) {
+      return (
+        <div className={`rounded-xl p-4 text-sm ${panelBg} ${panelMuted}`}>
+          Could not resolve media item <span className="font-mono">{currentDirective.material_id ?? 'unknown'}</span>.
+        </div>
+      )
+    }
+
+    if (currentDirective.type === 'image') {
+      if (!fallbackUrl) {
+        return <div className={`rounded-xl p-4 text-sm ${panelBg} ${panelMuted}`}>Image source not available.</div>
+      }
+      return <img src={fallbackUrl} alt={viewerTitle} className="w-full rounded-xl border border-black/10 object-contain max-h-[320px]" />
+    }
+
+    if (currentDirective.type === 'video') {
+      if (!fallbackUrl) {
+        return <div className={`rounded-xl p-4 text-sm ${panelBg} ${panelMuted}`}>Video source not available.</div>
+      }
+      const isYoutube = /youtu\.be|youtube\.com/i.test(fallbackUrl)
+      const embedUrl = getYoutubeEmbedUrl(fallbackUrl)
+      return (
+        <div className="space-y-2">
+          <div className="aspect-video w-full overflow-hidden rounded-xl border border-black/10">
+            {isYoutube ? (
+              <iframe
+                src={embedUrl}
+                title={viewerTitle}
+                className="w-full h-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            ) : (
+              <video src={fallbackUrl} controls className="w-full h-full object-cover" />
+            )}
+          </div>
+          {(typeof currentDirective.start === 'number' || typeof currentDirective.end === 'number') && (
+            <p className={`text-xs ${panelMuted}`}>
+              Clip focus: {currentDirective.start ?? 0}s to {currentDirective.end ?? 'end'}s
+            </p>
+          )}
+        </div>
+      )
+    }
+
+    if (currentDirective.type === 'simulation') {
+      if (!fallbackUrl) {
+        return <div className={`rounded-xl p-4 text-sm ${panelBg} ${panelMuted}`}>Simulation URL not available.</div>
+      }
+      return (
+        <div className="space-y-2">
+          <div className="aspect-video w-full overflow-hidden rounded-xl border border-black/10">
+            <iframe src={fallbackUrl} title={viewerTitle} className="w-full h-full" />
+          </div>
+          <a href={fallbackUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:text-blue-400">
+            Open simulation in new tab
+          </a>
+        </div>
+      )
+    }
+
+    return (
+      <div className={`rounded-xl border border-black/10 p-4 text-sm leading-relaxed max-h-[320px] overflow-auto ${panelBg} ${dk ? 'text-white/80' : 'text-gray-700'}`}>
+        {activeMaterial?.extracted_text?.trim() || 'No table/text content available for this step.'}
+      </div>
+    )
+  }
 
   // ── Error screen ─────────────────────────────────────────────────────────
   if (error) {
@@ -410,40 +579,53 @@ export default function SessionPage() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 gap-6 min-h-0">
+      <div className="flex-1 min-h-0 px-4 lg:px-6 pt-5 pb-3">
+        <div className="h-full w-full max-w-[1280px] mx-auto grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-5">
+          <div className="flex flex-col items-center justify-center gap-6 min-h-0">
+            {/* AI question caption */}
+            <div className="w-full max-w-xl">
+              {currentAiQuestion ? (
+                <div className={`rounded-2xl px-5 py-4 text-center ${captionCard}`}>
+                  <p className={`text-[10px] font-semibold uppercase tracking-widest mb-2 ${captionLabel}`}>AI Examiner</p>
+                  <p className={`text-sm leading-relaxed ${captionText}`}>{currentAiQuestion}</p>
+                </div>
+              ) : aiState === 'processing' ? (
+                <div className={`rounded-2xl px-5 py-4 text-center ${captionCard}`}>
+                  <span className="inline-flex gap-1.5">
+                    {[0, 150, 300].map((delay) => (
+                      <span key={delay} className="w-1.5 h-1.5 rounded-full bg-amber-400/60 animate-bounce" style={{ animationDelay: `${delay}ms` }} />
+                    ))}
+                  </span>
+                </div>
+              ) : null}
+            </div>
 
-        {/* AI question caption */}
-        <div className="w-full max-w-xl">
-          {currentAiQuestion ? (
-            <div className={`rounded-2xl px-5 py-4 text-center ${captionCard}`}>
-              <p className={`text-[10px] font-semibold uppercase tracking-widest mb-2 ${captionLabel}`}>AI Examiner</p>
-              <p className={`text-sm leading-relaxed ${captionText}`}>{currentAiQuestion}</p>
+            {/* Animated orb */}
+            <AssessmentOrb aiState={aiState} dark={dk} />
+
+            {/* Live student draft */}
+            <div className="w-full max-w-xl min-h-[48px] flex items-center justify-center">
+              {liveDraft ? (
+                <div className={`w-full rounded-2xl px-5 py-3 text-center ${draftCard}`}>
+                  <p className={`text-sm italic leading-relaxed ${draftText}`}>{liveDraft}</p>
+                </div>
+              ) : aiState === 'idle' && currentAiQuestion ? (
+                <p className={`text-xs ${hintText}`}>Tap the mic below and speak your answer</p>
+              ) : null}
             </div>
-          ) : aiState === 'processing' ? (
-            <div className={`rounded-2xl px-5 py-4 text-center ${captionCard}`}>
-              <span className="inline-flex gap-1.5">
-                {[0, 150, 300].map((delay) => (
-                  <span key={delay} className="w-1.5 h-1.5 rounded-full bg-amber-400/60 animate-bounce" style={{ animationDelay: `${delay}ms` }} />
-                ))}
-              </span>
-            </div>
-          ) : null}
+          </div>
+
+          {assessmentMode === 'multimodal' && (
+            <aside className={`rounded-2xl p-4 lg:p-5 ${panelCard} flex flex-col gap-3 overflow-hidden`}>
+              <div>
+                <p className={`text-[10px] font-semibold uppercase tracking-widest mb-1 ${captionLabel}`}>Media Viewer</p>
+                <h3 className={`text-sm font-semibold ${panelHeading}`}>{viewerTitle}</h3>
+                {viewerContext && <p className={`text-xs mt-1 ${panelMuted}`}>{viewerContext}</p>}
+              </div>
+              {renderMediaContent()}
+            </aside>
+          )}
         </div>
-
-        {/* Animated orb */}
-        <AssessmentOrb aiState={aiState} dark={dk} />
-
-        {/* Live student draft */}
-        <div className="w-full max-w-xl min-h-[48px] flex items-center justify-center">
-          {liveDraft ? (
-            <div className={`w-full rounded-2xl px-5 py-3 text-center ${draftCard}`}>
-              <p className={`text-sm italic leading-relaxed ${draftText}`}>{liveDraft}</p>
-            </div>
-          ) : aiState === 'idle' && currentAiQuestion ? (
-            <p className={`text-xs ${hintText}`}>Tap the mic below and speak your answer</p>
-          ) : null}
-        </div>
-
       </div>
 
       {/* Voice input bar */}

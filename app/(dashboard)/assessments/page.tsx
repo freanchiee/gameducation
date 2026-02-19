@@ -54,6 +54,9 @@ export default async function AssessmentsPage() {
                     >
                       {status.label}
                     </span>
+                    <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-[#e3ebff] text-[#2b447f] border border-[#c4d2f5]">
+                      {(a as any).assessment_mode === 'multimodal' ? 'Multimodal' : 'Voice'}
+                    </span>
                   </div>
                   <p className="text-sm text-[#516079]">
                     {a.classes?.name} · {a.topic} · {a.max_questions} questions

@@ -36,6 +36,7 @@ export interface ClassEnrolment {
 
 export type AssessmentCriterion = 'A' | 'B' | 'C' | 'D'
 export type AssessmentStatus = 'draft' | 'active' | 'closed'
+export type AssessmentMode = 'voice' | 'multimodal'
 
 export interface Assessment {
   id: string
@@ -52,8 +53,40 @@ export interface Assessment {
   system_prompt: string | null           // custom teacher instructions
   topic_context: string | null           // what was taught before this assessment
   status: AssessmentStatus
+  assessment_mode: AssessmentMode
+  tab_lock_enabled: boolean
+  proctoring_enabled: boolean
   access_code: string                    // 6-char uppercase
   created_at: string
+}
+
+export type LearningMaterialType =
+  | 'pdf'
+  | 'docx'
+  | 'pptx'
+  | 'youtube'
+  | 'image'
+  | 'video'
+  | 'website'
+  | 'text'
+
+export interface LearningMaterial {
+  id: string
+  assessment_id: string
+  title: string
+  type: LearningMaterialType
+  original_filename: string | null
+  storage_path: string | null
+  file_size_bytes: number | null
+  extracted_text: string | null
+  material_data: Record<string, unknown>
+  media_urls: string[]
+  processing_status: 'pending' | 'processing' | 'ready' | 'error'
+  processing_error: string | null
+  display_order: number
+  show_during_assessment: boolean
+  created_at: string
+  updated_at: string
 }
 
 export type SessionMode = 'individual' | 'group'
@@ -130,6 +163,8 @@ export interface AssessorPromptParams {
   teacherContext: string
   questionNumber: number
   maxQuestions: number
+  multimodalSummary?: string
+  multimodalMode?: boolean
   customInstructions?: string
 }
 

@@ -14,6 +14,8 @@ export function buildAssessorPrompt(params: AssessorPromptParams): string {
     teacherContext,
     questionNumber,
     maxQuestions,
+    multimodalSummary,
+    multimodalMode,
     customInstructions,
   } = params
 
@@ -46,6 +48,21 @@ TONE:
 
 RESPONSE FORMAT:
 Reply with ONLY the question. No preamble, no "Sure!", no "Great question!".${
+    multimodalMode
+      ? `\n\nMULTIMODAL MODE:
+- You may reference learning materials already uploaded by the teacher.
+- If a visual/data prompt helps, include ONE directive line before the question using:
+  [SHOW_IMAGE: material_id=<id>, context='<short instruction>']
+  [SHOW_VIDEO: material_id=<id>, start=<seconds>, end=<seconds>]
+  [SHOW_TABLE: material_id=<id>, context='<short instruction>']
+  [EMBED_SIMULATION: url=<url>]
+- Only use directives when they are clearly useful.
+- Keep your natural-language question concise after any directive line.
+
+LEARNING MATERIALS SUMMARY:
+${multimodalSummary || 'No materials available yet.'}`
+      : ''
+  }${
     customInstructions
       ? `\n\nTEACHER ADDITIONAL INSTRUCTIONS:\n${customInstructions}`
       : ''
