@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, Quote } from 'lucide-react'
 import ReviewButton from '@/components/teacher/ReviewButton'
+import ScoreOverrideControl from '@/components/teacher/ScoreOverrideControl'
 import { EvaluationReport } from '@/lib/types'
 
 const LEVEL_BANDS = [
@@ -20,9 +21,10 @@ function getLevelBand(level: number) {
 interface CriterionRowProps {
   label: string
   level: number | null
+  isOverridden?: boolean
 }
 
-function CriterionRow({ label, level }: CriterionRowProps) {
+function CriterionRow({ label, level, isOverridden = false }: CriterionRowProps) {
   const band = getLevelBand(level ?? 0)
   const pct = ((level ?? 0) / 8) * 100
   return (
@@ -34,6 +36,11 @@ function CriterionRow({ label, level }: CriterionRowProps) {
       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full w-28 text-center ${band.color}`}>
         {level ?? '—'}/8 · {band.label}
       </span>
+      {isOverridden && (
+        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+          Teacher override
+        </span>
+      )}
     </div>
   )
 }
@@ -72,6 +79,7 @@ export default async function EvaluationDetailPage({
   const className = assessment?.classes?.name ?? '—'
   const studentName = (ev.profiles as any)?.full_name ?? 'Anonymous student'
   const report = ev.full_report as EvaluationReport | null
+  const effectiveCriterionA = ev.teacher_override_level ?? ev.criterion_a_level
 
   return (
     <div className="max-w-3xl">
@@ -96,13 +104,23 @@ export default async function EvaluationDetailPage({
         <ReviewButton evaluationId={ev.id} reviewed={ev.reviewed_by_teacher ?? false} />
       </div>
 
+      <ScoreOverrideControl
+        evaluationId={ev.id}
+        aiLevel={ev.criterion_a_level}
+        initialOverride={ev.teacher_override_level}
+      />
+
       {/* Criteria levels */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-5">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-5">
           Criterion Scores
         </h2>
         <div className="space-y-4">
-          <CriterionRow label="A – Knowing & Understanding" level={ev.criterion_a_level} />
+          <CriterionRow
+            label="A – Knowing & Understanding"
+            level={effectiveCriterionA}
+            isOverridden={ev.teacher_override_level !== null}
+          />
           <CriterionRow label="B – Inquiring & Designing"  level={ev.criterion_b_level} />
           <CriterionRow label="C – Processing & Evaluating" level={ev.criterion_c_level} />
           <CriterionRow label="D – Reflecting on Impacts"  level={ev.criterion_d_level} />

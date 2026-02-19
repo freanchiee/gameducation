@@ -24,7 +24,7 @@ export default async function ReportsPage() {
     .from('evaluations')
     .select(
       `
-      id, criterion_a_level, criterion_b_level, criterion_c_level, criterion_d_level,
+      id, criterion_a_level, criterion_b_level, criterion_c_level, criterion_d_level, teacher_override_level,
       reviewed_by_teacher, created_at,
       sessions(
         assessments(title, topic, classes(teacher_id, name))
@@ -58,7 +58,8 @@ export default async function ReportsPage() {
             </thead>
             <tbody className="divide-y divide-[#d8deea]">
               {evaluations.map((ev) => {
-                const band = getLevelBand(ev.criterion_a_level ?? 0)
+                const effectiveCriterionA = ev.teacher_override_level ?? ev.criterion_a_level ?? 0
+                const band = getLevelBand(effectiveCriterionA)
                 const assessment = (ev.sessions as any)?.assessments
                 const student = (ev.profiles as any)?.full_name ?? 'Unknown student'
                 return (
@@ -70,8 +71,13 @@ export default async function ReportsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${band.color}`}>
-                        {ev.criterion_a_level}/8 · {band.label}
+                        {effectiveCriterionA}/8 · {band.label}
                       </span>
+                      {ev.teacher_override_level !== null && (
+                        <span className="ml-2 px-2 py-0.5 rounded-full text-[11px] font-medium bg-indigo-100 text-indigo-700">
+                          Teacher override
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {ev.reviewed_by_teacher ? (

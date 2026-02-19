@@ -37,7 +37,7 @@ export default async function AssessmentDetailPage({
     .from('sessions')
     .select(`
       id, mode, status, started_at, completed_at,
-      evaluations(id, criterion_a_level, reviewed_by_teacher),
+      evaluations(id, criterion_a_level, teacher_override_level, reviewed_by_teacher),
       session_participants(count)
     `)
     .eq('assessment_id', params.id)
@@ -147,6 +147,9 @@ export default async function AssessmentDetailPage({
             <tbody className="divide-y divide-gray-50">
               {sessions.map((s) => {
                 const ev = (s.evaluations as any)?.[0]
+                const effectiveCriterionA = ev
+                  ? (ev.teacher_override_level ?? ev.criterion_a_level)
+                  : null
                 return (
                   <tr key={s.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-5 py-3 text-gray-500 text-xs">
@@ -164,7 +167,10 @@ export default async function AssessmentDetailPage({
                       </span>
                     </td>
                     <td className="px-5 py-3 text-gray-600">
-                      {ev ? `${ev.criterion_a_level ?? '—'}/8` : '—'}
+                      {ev ? `${effectiveCriterionA ?? '—'}/8` : '—'}
+                      {ev?.teacher_override_level !== null && (
+                        <span className="ml-2 text-[11px] font-medium text-indigo-700">override</span>
+                      )}
                     </td>
                     <td className="px-5 py-3">
                       {ev && (
