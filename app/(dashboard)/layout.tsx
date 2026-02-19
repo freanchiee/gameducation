@@ -18,7 +18,7 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-[#ece8c7] text-[#223a83]">
-      <div className="mx-auto flex min-h-screen max-w-[1680px]">
+      <div className="flex min-h-screen w-full">
         <SidebarNav email={user.email ?? ''} />
         <main className="flex-1 min-w-0 px-4 py-6 sm:px-6 md:px-10 md:py-10">
           {children}

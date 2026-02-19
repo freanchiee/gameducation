@@ -44,7 +44,7 @@ export default async function ClassDetailPage({
   const studentCount = (enrolments as any)?.count ?? 0
 
   return (
-    <div className="max-w-3xl">
+    <div className="w-full">
       {/* Header */}
       <div className="flex items-start gap-3 mb-8">
         <Link href="/classes" className="text-gray-400 hover:text-gray-600 transition-colors mt-1">

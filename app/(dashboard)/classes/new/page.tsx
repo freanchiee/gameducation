@@ -58,7 +58,7 @@ export default function NewClassPage() {
   }
 
   return (
-    <div className="max-w-lg">
+    <div className="w-full">
       <div className="flex items-center gap-3 mb-8">
         <Link href="/classes" className="text-gray-400 hover:text-gray-600 transition-colors">
           <ArrowLeft size={20} />

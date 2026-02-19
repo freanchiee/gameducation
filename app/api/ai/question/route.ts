@@ -10,6 +10,15 @@ type ConceptTracker = {
   current_concept: string
 }
 
+type ClaudeImageBlock = {
+  type: 'image'
+  source: {
+    type: 'base64'
+    media_type: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
+    data: string
+  }
+}
+
 function deriveTargetConcepts(topic: string, topicContext?: string | null) {
   const fromContext = (topicContext ?? '')
     .split(/[,\n.;]/)
@@ -28,6 +37,46 @@ function deriveTargetConcepts(topic: string, topicContext?: string | null) {
   ]
 }
 
+function extractScreenshotUrlsFromMessages(history: Message[]) {
+  const urls: string[] = []
+  const re = /Screenshot URL:\s*(https?:\/\/[^\s]+)/gi
+  for (const msg of history) {
+    if (msg.role !== 'student' || !msg.content) continue
+    let m: RegExpExecArray | null
+    while ((m = re.exec(msg.content)) !== null) {
+      const candidate = m[1]?.trim()
+      if (candidate && !urls.includes(candidate)) urls.push(candidate)
+    }
+  }
+  return urls
+}
+
+async function fetchScreenshotBlocks(urls: string[], limit = 2): Promise<ClaudeImageBlock[]> {
+  const blocks: ClaudeImageBlock[] = []
+  const allowed = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+  for (const url of urls.slice(-limit)) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' })
+      if (!res.ok) continue
+      const mediaType = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
+      if (!allowed.has(mediaType)) continue
+      const buf = Buffer.from(await res.arrayBuffer())
+      if (buf.byteLength > 5 * 1024 * 1024) continue
+      blocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: mediaType as ClaudeImageBlock['source']['media_type'],
+          data: buf.toString('base64'),
+        },
+      })
+    } catch {
+      // Ignore bad/expired URLs; continue with available images.
+    }
+  }
+  return blocks
+}
+
 function extractJsonObject(text: string) {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
@@ -42,6 +91,106 @@ type MediaDirective = {
   start?: number
   end?: number
   context?: string
+}
+
+type TaskDirective = {
+  type:
+    | 'simulation_probe'
+    | 'graph_analysis'
+    | 'table_completion'
+    | 'iv_dv_cv_sort'
+    | 'matching'
+    | 'fill_blank'
+    | 'short_answer'
+    | 'extended_response'
+  title?: string
+  prompt?: string
+}
+
+function normalizeEmbedUrl(input: string) {
+  const raw = input.trim()
+  if (!raw) return raw
+  try {
+    const u = new URL(raw)
+    const host = u.hostname.toLowerCase()
+    if (host.includes('youtu.be')) {
+      const id = u.pathname.replace('/', '')
+      return id ? `https://www.youtube.com/embed/${id}` : raw
+    }
+    if (host.includes('youtube.com')) {
+      const id = u.searchParams.get('v')
+      return id ? `https://www.youtube.com/embed/${id}` : raw
+    }
+    if (host.includes('geogebra.org')) {
+      const parts = u.pathname.split('/').filter(Boolean)
+      const id = parts[parts.length - 1]
+      if (id) return `https://www.geogebra.org/material/iframe/id/${id}/width/960/height/540/border/888888/rc/false/ai/false`
+    }
+    return raw
+  } catch {
+    return raw
+  }
+}
+
+function buildFallbackTaskDirective(
+  taskTypes: string[],
+  questionNumber: number,
+  topic: string
+): TaskDirective {
+  const defaults: TaskDirective['type'][] = [
+    'iv_dv_cv_sort',
+    'table_completion',
+    'graph_analysis',
+    'matching',
+    'short_answer',
+    'extended_response',
+  ]
+  const normalized = taskTypes.filter(Boolean) as TaskDirective['type'][]
+  const pool = normalized.length > 0 ? normalized : defaults
+  const selected = pool[(Math.max(questionNumber, 1) - 1) % pool.length]
+
+  const byType: Record<TaskDirective['type'], { title: string; prompt: string }> = {
+    simulation_probe: {
+      title: 'Simulation probe',
+      prompt: `Manipulate one parameter in the simulation and describe how the observed outcome changes for ${topic}.`,
+    },
+    graph_analysis: {
+      title: 'Graph interpretation',
+      prompt: `Use the shown graph/data to identify one trend and one possible scientific explanation related to ${topic}.`,
+    },
+    table_completion: {
+      title: 'Data table completion',
+      prompt: `Fill the table with observed/estimated values, then infer a relationship connected to ${topic}.`,
+    },
+    iv_dv_cv_sort: {
+      title: 'IV / DV / CV sorting',
+      prompt: `Classify the variables into independent, dependent, and controlled variables for a ${topic} investigation.`,
+    },
+    matching: {
+      title: 'Concept matching',
+      prompt: `Match each claim with the most relevant evidence/result from the multimodal material.`,
+    },
+    fill_blank: {
+      title: 'Structured completion',
+      prompt: `Complete the scientific statement with precise terms and justify one key term choice.`,
+    },
+    short_answer: {
+      title: 'Short evidence answer',
+      prompt: `Write a concise answer using one specific piece of evidence from the media.`,
+    },
+    extended_response: {
+      title: 'Extended reasoning',
+      prompt: `Write a deeper explanation using data, comparison, and evaluation linked to ${topic}.`,
+    },
+  }
+
+  return { type: selected, ...byType[selected] }
+}
+
+function prependMultimodalIntro(question: string, questionNumber: number) {
+  if (questionNumber !== 1) return question
+  if (/on-screen|simulation|task/i.test(question)) return question
+  return `Before you answer, use the on-screen task or simulation and observe what changes. ${question}`
 }
 
 function parseMediaDirectives(text: string) {
@@ -81,6 +230,22 @@ function parseMediaDirectives(text: string) {
   return { cleanedQuestion: cleaned, directives }
 }
 
+function parseTaskDirective(text: string) {
+  const taskRe =
+    /\[TASK_WIDGET:\s*type=([^,\]]+)(?:,\s*title=['"]([^'"]+)['"])?(?:,\s*prompt=['"]([^'"]+)['"])?\s*\]/i
+  const match = text.match(taskRe)
+  const directive = match
+    ? {
+        type: (match[1]?.trim() ?? 'short_answer') as TaskDirective['type'],
+        title: match[2]?.trim(),
+        prompt: match[3]?.trim(),
+      }
+    : null
+
+  const cleaned = text.replace(taskRe, '').trim()
+  return { cleaned, directive }
+}
+
 export async function POST(request: Request) {
   const startedAt = Date.now()
   const reqId = Math.random().toString(36).slice(2, 10)
@@ -111,11 +276,11 @@ export async function POST(request: Request) {
     // Fetch session + assessment config
     let { data: session, error: sessionError } = await supabase
       .from('sessions')
-      .select('*, assessments(id, topic, year_group, system_prompt, topic_context, max_questions, criteria, assessment_mode)')
+      .select('*, assessments(id, topic, year_group, system_prompt, topic_context, max_questions, criteria, assessment_mode, multimodal_engine_mode, multimodal_task_types)')
       .eq('id', session_id)
       .single()
 
-    if (sessionError && /assessment_mode|PGRST204|column/i.test(sessionError.message ?? '')) {
+    if (sessionError && /assessment_mode|multimodal_engine_mode|multimodal_task_types|PGRST204|column/i.test(sessionError.message ?? '')) {
       const fallback = await supabase
         .from('sessions')
         .select('*, assessments(id, topic, year_group, system_prompt, topic_context, max_questions, criteria)')
@@ -137,12 +302,17 @@ export async function POST(request: Request) {
 
     const assessment = session.assessments
     const isMultimodal = (assessment as any).assessment_mode === 'multimodal'
+    const engineMode = ((assessment as any).multimodal_engine_mode ?? 'auto') as 'auto' | 'advanced'
+    const configuredTaskTypes = Array.isArray((assessment as any).multimodal_task_types)
+      ? ((assessment as any).multimodal_task_types as string[])
+      : []
 
     let multimodalSummary = ''
+    let preferredSimulation: { materialId?: string; embedUrl: string } | null = null
     if (isMultimodal) {
       const { data: materials, error: materialsError } = await supabase
         .from('learning_materials')
-        .select('id, title, type, processing_status, show_during_assessment, extracted_text')
+        .select('id, title, type, processing_status, show_during_assessment, extracted_text, material_data, media_urls')
         .eq('assessment_id', assessment.id)
         .eq('show_during_assessment', true)
         .order('display_order', { ascending: true })
@@ -155,6 +325,22 @@ export async function POST(request: Request) {
             return `- [${m.id}] ${m.title} (${m.type}, ${m.processing_status}) ${textPreview}`
           })
           .join('\n')
+
+        const simMaterial = (materials ?? []).find((m: any) => {
+          const kind = typeof m.material_data?.kind === 'string' ? m.material_data.kind : ''
+          return kind === 'simulation' || /simulation|geogebra|phet/i.test(`${m.title} ${m.type}`)
+        }) as any
+
+        if (simMaterial) {
+          const rawUrl =
+            (typeof simMaterial.material_data?.embed_url === 'string' && simMaterial.material_data.embed_url) ||
+            (typeof simMaterial.material_data?.url === 'string' && simMaterial.material_data.url) ||
+            (Array.isArray(simMaterial.media_urls) && typeof simMaterial.media_urls[0] === 'string' ? simMaterial.media_urls[0] : '')
+          const embedUrl = normalizeEmbedUrl(rawUrl || '')
+          if (embedUrl) {
+            preferredSimulation = { materialId: simMaterial.id, embedUrl }
+          }
+        }
       }
     }
 
@@ -180,10 +366,13 @@ export async function POST(request: Request) {
       topic: assessment.topic,
       yearGroup: assessment.year_group,
       teacherContext: assessment.topic_context ?? '',
+      assessmentCriteria: (assessment.criteria as any) ?? ['A'],
       questionNumber: question_number,
       maxQuestions: assessment.max_questions ?? 6,
       multimodalSummary,
       multimodalMode: isMultimodal,
+      multimodalEngineMode: engineMode,
+      multimodalTaskTypes: configuredTaskTypes as any,
       customInstructions: assessment.system_prompt ?? '',
     })
 
@@ -200,7 +389,9 @@ export async function POST(request: Request) {
       .find((m) => m.role === 'student')?.content
 
     const conceptControlPrompt = [
-      'Return ONLY valid JSON with keys: question, concept_focus, mark_concept_covered.',
+      isMultimodal
+        ? 'Return ONLY valid JSON with keys: question, concept_focus, mark_concept_covered, task_widget.'
+        : 'Return ONLY valid JSON with keys: question, concept_focus, mark_concept_covered.',
       'No markdown.',
       `Target concepts: ${tracker.target_concepts.join(' | ')}`,
       `Already covered: ${tracker.covered_concepts.join(' | ') || 'none'}`,
@@ -210,7 +401,29 @@ export async function POST(request: Request) {
         : 'No student response yet.',
       'Set mark_concept_covered=true only if latest response demonstrates adequate understanding for the current concept.',
       'Write one concise Socratic follow-up question.',
+      isMultimodal && question_number === 1
+        ? 'In your question text, include a brief instruction that student should use the on-screen task/simulation while responding.'
+        : 'Do not add unnecessary preamble.',
+      isMultimodal && preferredSimulation
+        ? `Use EMBED_SIMULATION with this URL when relevant: ${preferredSimulation.embedUrl}`
+        : 'No guaranteed simulation URL available.',
+      isMultimodal
+        ? `If useful, include task_widget as: {"type":"${(configuredTaskTypes[0] ?? 'short_answer')}","title":"...","prompt":"..."}.`
+        : 'Do not include task_widget.',
     ].join('\n')
+
+    const screenshotUrls = extractScreenshotUrlsFromMessages((conversation_history ?? []) as Message[])
+    const screenshotBlocks = await fetchScreenshotBlocks(screenshotUrls, 2)
+    const userContent: any =
+      screenshotBlocks.length > 0
+        ? [
+            {
+              type: 'text',
+              text: `${conceptControlPrompt}\n\nStudent screenshot evidence is attached. Use it to judge whether task work appears correct before asking the next question.`,
+            },
+            ...screenshotBlocks,
+          ]
+        : conceptControlPrompt
 
     const response = await claudeClient.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -219,14 +432,19 @@ export async function POST(request: Request) {
       messages: trimmedHistory.length > 0
         ? [
             ...trimmedHistory,
-            { role: 'user', content: conceptControlPrompt } as const,
+            { role: 'user', content: userContent } as const,
           ]
         : [{ role: 'user', content: `${conceptControlPrompt}\nBegin the assessment.` }],
     })
 
     const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
     const parsedJsonText = extractJsonObject(rawText)
-    let parsed: { question?: string; concept_focus?: string; mark_concept_covered?: boolean } = {}
+    let parsed: {
+      question?: string
+      concept_focus?: string
+      mark_concept_covered?: boolean
+      task_widget?: TaskDirective
+    } = {}
     if (parsedJsonText) {
       try {
         parsed = JSON.parse(parsedJsonText)
@@ -254,7 +472,35 @@ export async function POST(request: Request) {
 
     const aiOutput = (parsed.question ?? rawText ?? '').trim()
     const { cleanedQuestion, directives } = parseMediaDirectives(aiOutput)
-    const question = cleanedQuestion || aiOutput
+    const { cleaned, directive: inlineTaskDirective } = parseTaskDirective(cleanedQuestion || aiOutput)
+    const parsedTaskDirective =
+      parsed.task_widget && parsed.task_widget.type
+        ? parsed.task_widget
+        : null
+    const taskDirective =
+      inlineTaskDirective ??
+      parsedTaskDirective ??
+      (isMultimodal
+        ? buildFallbackTaskDirective(configuredTaskTypes, question_number, assessment.topic)
+        : null)
+    const criteria = Array.isArray((assessment as any).criteria) ? ((assessment as any).criteria as string[]) : []
+    const bOrCEnabled = criteria.includes('B') || criteria.includes('C')
+    const ensuredTaskDirective =
+      taskDirective ??
+      (isMultimodal && bOrCEnabled ? buildFallbackTaskDirective(configuredTaskTypes, question_number, assessment.topic) : null)
+    let question = cleaned || cleanedQuestion || aiOutput
+    question = prependMultimodalIntro(question, question_number)
+
+    if (isMultimodal && preferredSimulation && directives.every((d) => d.type !== 'simulation')) {
+      directives.unshift({
+        type: 'simulation',
+        material_id: preferredSimulation.materialId,
+        url: preferredSimulation.embedUrl,
+        context: question_number === 1
+          ? 'Manipulate one variable, observe changes, then answer the examiner.'
+          : 'Use the simulation evidence to support your response.',
+      })
+    }
 
     // Store AI message in DB. AI messages have no participant (participant_id is always null).
     // We insert whenever we have a session_id, regardless of whether a participant exists.
@@ -274,11 +520,16 @@ export async function POST(request: Request) {
       covered_count: coveredConcepts.length,
       should_finish: shouldFinish,
       directives_count: directives.length,
+      task_type: ensuredTaskDirective?.type ?? null,
+      vision_images_used: screenshotBlocks.length,
     })
 
     return NextResponse.json({
       question,
       media_directives: directives,
+      task_directive: ensuredTaskDirective,
+      vision_evidence_used: screenshotBlocks.length > 0,
+      vision_images_used: screenshotBlocks.length,
       assessment_mode: (assessment as any).assessment_mode ?? 'voice',
       max_questions: maxQuestions,
       concept_tracker: {

@@ -47,6 +47,7 @@ function fallbackResources(topic: string, subject: string, yearGroup: string) {
   const q = `${subject} ${topic} ${yearGroup}`
   return {
     youtube_url: `https://www.youtube.com/results?search_query=${encodeURIComponent(`${q} lesson`)}`,
+    geogebra_url: `https://www.geogebra.org/search/${encodeURIComponent(`${subject} ${topic}`)}`,
     website_url: `https://www.khanacademy.org/search?page_search_query=${encodeURIComponent(`${subject} ${topic}`)}`,
     raw_text_title: `${topic} starter notes`,
     raw_text: [
@@ -82,6 +83,7 @@ export async function POST(request: Request) {
       searchDuckLinks(`${queryBase} lesson site:youtube.com/watch`),
       searchDuckLinks(`${queryBase} explained site:khanacademy.org OR site:bbc.co.uk/bitesize OR site:ck12.org`),
     ])
+    const geogebraLinks = await searchDuckLinks(`${queryBase} simulation site:geogebra.org`).catch(() => [])
 
     const videoCandidates = videoLinks.status === 'fulfilled' ? videoLinks.value : []
     const websiteCandidates = websiteLinks.status === 'fulfilled' ? websiteLinks.value : []
@@ -95,9 +97,13 @@ export async function POST(request: Request) {
       videoCandidates.find((u) => !/youtube\.com|youtu\.be/i.test(u))
 
     const fallback = fallbackResources(topic, subject, yearGroup)
+    const geogebraUrl =
+      geogebraLinks.find((u) => /geogebra\.org\/m\/|geogebra\.org\/material/i.test(u)) ??
+      geogebraLinks.find((u) => /geogebra\.org/i.test(u))
 
     return NextResponse.json({
       youtube_url: youtubeUrl ?? fallback.youtube_url,
+      geogebra_url: geogebraUrl ?? fallback.geogebra_url,
       website_url: websiteUrl ?? fallback.website_url,
       raw_text_title: `${topic} class summary (${yearGroup})`,
       raw_text: [

@@ -4,6 +4,55 @@ import { buildEvaluationPrompt } from '@/lib/prompts/rubrics'
 import { claudeClient } from '@/lib/claude'
 import type { Message } from '@/lib/types'
 
+type ClaudeImageBlock = {
+  type: 'image'
+  source: {
+    type: 'base64'
+    media_type: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'
+    data: string
+  }
+}
+
+function extractScreenshotUrlsFromMessages(history: Message[]) {
+  const urls: string[] = []
+  const re = /Screenshot URL:\s*(https?:\/\/[^\s]+)/gi
+  for (const msg of history) {
+    if (msg.role !== 'student' || !msg.content) continue
+    let m: RegExpExecArray | null
+    while ((m = re.exec(msg.content)) !== null) {
+      const candidate = m[1]?.trim()
+      if (candidate && !urls.includes(candidate)) urls.push(candidate)
+    }
+  }
+  return urls
+}
+
+async function fetchScreenshotBlocks(urls: string[], limit = 4): Promise<ClaudeImageBlock[]> {
+  const blocks: ClaudeImageBlock[] = []
+  const allowed = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+  for (const url of urls.slice(-limit)) {
+    try {
+      const res = await fetch(url, { cache: 'no-store' })
+      if (!res.ok) continue
+      const mediaType = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase()
+      if (!allowed.has(mediaType)) continue
+      const buf = Buffer.from(await res.arrayBuffer())
+      if (buf.byteLength > 5 * 1024 * 1024) continue
+      blocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: mediaType as ClaudeImageBlock['source']['media_type'],
+          data: buf.toString('base64'),
+        },
+      })
+    } catch {
+      // ignore failed image fetches
+    }
+  }
+  return blocks
+}
+
 export async function POST(request: Request) {
   const startedAt = Date.now()
   const reqId = Math.random().toString(36).slice(2, 10)
@@ -48,10 +97,23 @@ export async function POST(request: Request) {
       transcript,
     })
 
+    const screenshotUrls = extractScreenshotUrlsFromMessages((conversation_history as Message[]) ?? [])
+    const screenshotBlocks = await fetchScreenshotBlocks(screenshotUrls, 4)
+    const evaluationContent: any =
+      screenshotBlocks.length > 0
+        ? [
+            {
+              type: 'text',
+              text: `${evaluationPrompt}\n\nUse the attached screenshot evidence to strengthen scoring decisions, evidence quotes, and criterion judgments.`,
+            },
+            ...screenshotBlocks,
+          ]
+        : evaluationPrompt
+
     const response = await claudeClient.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1500,
-      messages: [{ role: 'user', content: evaluationPrompt }],
+      messages: [{ role: 'user', content: evaluationContent }],
     })
 
     const rawText =

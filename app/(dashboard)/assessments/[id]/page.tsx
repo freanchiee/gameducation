@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, Clock, PlayCircle, CheckCircle, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Clock, PlayCircle, CheckCircle, ExternalLink, Pencil } from 'lucide-react'
 import AssessmentActions from '@/components/teacher/AssessmentActions'
 import TypingPermissions from '@/components/teacher/TypingPermissions'
 import { AssessmentStatus } from '@/lib/types'
@@ -57,7 +57,7 @@ export default async function AssessmentDetailPage({
   const StatusIcon = statusConf.Icon
 
   return (
-    <div className="max-w-3xl">
+    <div className="w-full">
       {/* Header */}
       <div className="flex items-start gap-3 mb-8">
         <Link href="/assessments" className="text-gray-400 hover:text-gray-600 transition-colors mt-1">
@@ -77,6 +77,15 @@ export default async function AssessmentDetailPage({
           {assessment.description && (
             <p className="text-gray-400 text-sm mt-1">{assessment.description}</p>
           )}
+          <div className="mt-3">
+            <Link
+              href={`/assessments/${assessment.id}/edit`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-600 text-white text-xs font-semibold shadow-sm hover:bg-blue-700 transition-colors"
+            >
+              <Pencil size={12} />
+              Edit assessment
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -113,6 +122,14 @@ export default async function AssessmentDetailPage({
                 {(assessment as any).assessment_mode === 'multimodal' ? 'Multimodal' : 'Voice'}
               </dd>
             </div>
+            {(assessment as any).assessment_mode === 'multimodal' && (
+              <div>
+                <dt className="text-gray-400">Engine</dt>
+                <dd className="font-medium text-gray-900 capitalize">
+                  {(assessment as any).multimodal_engine_mode ?? 'auto'}
+                </dd>
+              </div>
+            )}
             <div>
               <dt className="text-gray-400">Tab lock</dt>
               <dd className="font-medium text-gray-900">
@@ -131,6 +148,16 @@ export default async function AssessmentDetailPage({
                 {(assessment.criteria as string[]).map((c) => `Criterion ${c}`).join(', ')}
               </dd>
             </div>
+            {(assessment as any).assessment_mode === 'multimodal' &&
+              Array.isArray((assessment as any).multimodal_task_types) &&
+              (assessment as any).multimodal_task_types.length > 0 && (
+                <div className="col-span-2">
+                  <dt className="text-gray-400 mb-0.5">Enabled task types</dt>
+                  <dd className="text-gray-700 leading-snug">
+                    {((assessment as any).multimodal_task_types as string[]).join(', ')}
+                  </dd>
+                </div>
+              )}
             {assessment.topic_context && (
               <div className="col-span-2">
                 <dt className="text-gray-400 mb-0.5">Class context</dt>

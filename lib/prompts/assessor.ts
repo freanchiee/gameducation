@@ -12,14 +12,21 @@ export function buildAssessorPrompt(params: AssessorPromptParams): string {
     topic,
     yearGroup,
     teacherContext,
+    assessmentCriteria,
     questionNumber,
     maxQuestions,
     multimodalSummary,
     multimodalMode,
+    multimodalEngineMode,
+    multimodalTaskTypes,
     customInstructions,
   } = params
 
-  return `You are an expert MYP ${yearGroup} oral examiner conducting a Criterion A (Knowing and Understanding) assessment.
+  const criteriaText = (assessmentCriteria && assessmentCriteria.length > 0)
+    ? assessmentCriteria.map((c) => `Criterion ${c}`).join(', ')
+    : 'Criterion A'
+
+  return `You are an expert MYP ${yearGroup} oral examiner conducting a ${criteriaText} assessment.
 
 STUDENT: ${studentName} | TOPIC: ${topic} | YEAR: ${yearGroup}
 CONTEXT: ${teacherContext || 'Standard curriculum content for this topic.'}
@@ -51,12 +58,20 @@ Reply with ONLY the question. No preamble, no "Sure!", no "Great question!".${
     multimodalMode
       ? `\n\nMULTIMODAL MODE:
 - You may reference learning materials already uploaded by the teacher.
+- This is a multimodal assessment. Do not run as voice-only recall.
+- Force active on-screen investigation for Criteria B/C where possible.
+- Your voice should briefly introduce the side-task before asking for the response.
+- If QUESTION is 1, explicitly tell the student they must use the on-screen task/simulation while answering verbally.
+- Engine mode: ${multimodalEngineMode ?? 'auto'}
+- Enabled task types: ${(multimodalTaskTypes ?? []).join(', ') || 'auto'}
 - If a visual/data prompt helps, include ONE directive line before the question using:
   [SHOW_IMAGE: material_id=<id>, context='<short instruction>']
   [SHOW_VIDEO: material_id=<id>, start=<seconds>, end=<seconds>]
   [SHOW_TABLE: material_id=<id>, context='<short instruction>']
   [EMBED_SIMULATION: url=<url>]
-- Only use directives when they are clearly useful.
+- For interactive task execution, you may include ONE task directive:
+  [TASK_WIDGET: type=<simulation_probe|graph_analysis|table_completion|iv_dv_cv_sort|matching|fill_blank|short_answer|extended_response>, title='<short title>', prompt='<what student must do on-screen>']
+- In multimodal mode, default to including a directive and task widget unless impossible.
 - Keep your natural-language question concise after any directive line.
 
 LEARNING MATERIALS SUMMARY:

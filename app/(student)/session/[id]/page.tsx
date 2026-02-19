@@ -21,6 +21,31 @@ type MediaDirective = {
   end?: number
   context?: string
 }
+type TaskDirective = {
+  type:
+    | 'simulation_probe'
+    | 'graph_analysis'
+    | 'table_completion'
+    | 'iv_dv_cv_sort'
+    | 'matching'
+    | 'fill_blank'
+    | 'short_answer'
+    | 'extended_response'
+  title?: string
+  prompt?: string
+}
+type RuntimeTaskRun = {
+  id: string
+  task_sequence: number
+  status: string
+  criterion: string
+  task_config: {
+    title?: string
+    prompt?: string
+    task_type_ui?: TaskDirective['type']
+    simulation_url?: string | null
+  }
+}
 type SessionMaterial = {
   id: string
   title: string
@@ -53,6 +78,16 @@ function getYoutubeEmbedUrl(input: string) {
   } catch {
     return input
   }
+}
+
+function toNumeric(value: string) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function buildLinePath(points: Array<{ x: number; y: number }>) {
+  if (points.length === 0) return ''
+  return points.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ')
 }
 
 // ── Animated orb ────────────────────────────────────────────────────────────
@@ -139,6 +174,16 @@ export default function SessionPage() {
   const [materialsById, setMaterialsById] = useState<Record<string, SessionMaterial>>({})
   const [materialsLoaded, setMaterialsLoaded] = useState(false)
   const [currentDirective, setCurrentDirective] = useState<MediaDirective | null>(null)
+  const [currentTaskDirective, setCurrentTaskDirective] = useState<TaskDirective | null>(null)
+  const [taskResponse, setTaskResponse] = useState('')
+  const [taskSelections, setTaskSelections] = useState<Record<string, string>>({})
+  const [taskNotes, setTaskNotes] = useState('')
+  const [screenshotFile, setScreenshotFile] = useState<File | null>(null)
+  const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState<string | null>(null)
+  const [screenshotAttached, setScreenshotAttached] = useState(false)
+  const [visionEvidenceUsed, setVisionEvidenceUsed] = useState(false)
+  const [visionImagesUsed, setVisionImagesUsed] = useState(0)
+  const [currentTaskRunId, setCurrentTaskRunId] = useState('')
   const [studentName, setStudentName] = useState('')
   const [participantId, setParticipantId] = useState('')
   const [allowTextInput, setAllowTextInput] = useState(false)
@@ -154,6 +199,7 @@ export default function SessionPage() {
 
   const initialized = useRef(false)
   const requestInFlightRef = useRef(false)
+  const taskEventQueueRef = useRef<Array<{ event_type: string; event_data: Record<string, unknown>; timestamp: string }>>([])
   const webcamVideoRef = useRef<HTMLVideoElement>(null)
   const debugEnabled = searchParams.get('debug') === '1'
 
@@ -174,6 +220,14 @@ export default function SessionPage() {
     return () => clearInterval(id)
   }, [sessionStartMs])
 
+  useEffect(() => {
+    if (!currentTaskRunId) return
+    const timer = setInterval(() => {
+      void flushTaskEvents()
+    }, 10_000)
+    return () => clearInterval(timer)
+  }, [currentTaskRunId, participantId, sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Webcam self-view ─────────────────────────────────────────────────────
   useEffect(() => {
     let stream: MediaStream | null = null
@@ -189,6 +243,14 @@ export default function SessionPage() {
       .catch(() => {})
     return () => { stream?.getTracks().forEach((t) => t.stop()) }
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (screenshotPreviewUrl) {
+        URL.revokeObjectURL(screenshotPreviewUrl)
+      }
+    }
+  }, [screenshotPreviewUrl])
 
   // ── Mount ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -238,10 +300,23 @@ export default function SessionPage() {
   function applyQuestionMetadata(
     mode: AssessmentMode,
     directives: MediaDirective[] | undefined,
+    taskDirective: TaskDirective | undefined,
     pId: string
   ) {
     setAssessmentMode(mode)
     setCurrentDirective(directives && directives.length > 0 ? directives[0] : null)
+    setCurrentTaskDirective(taskDirective ?? null)
+    setTaskResponse('')
+    setTaskSelections({})
+    setTaskNotes('')
+    setScreenshotFile(null)
+    setScreenshotAttached(false)
+    setVisionEvidenceUsed(false)
+    setVisionImagesUsed(0)
+    if (screenshotPreviewUrl) {
+      URL.revokeObjectURL(screenshotPreviewUrl)
+    }
+    setScreenshotPreviewUrl(null)
     if (mode === 'multimodal') {
       void loadSessionMaterials(pId)
     }
@@ -256,6 +331,77 @@ export default function SessionPage() {
         setAllowTextInput(Boolean(data.allow_text_input))
       }
     } catch { setAllowTextInput(false) }
+  }
+
+  function queueTaskEvent(eventType: string, eventData: Record<string, unknown>) {
+    if (!currentTaskRunId) return
+    taskEventQueueRef.current.push({
+      event_type: eventType,
+      event_data: eventData,
+      timestamp: new Date().toISOString(),
+    })
+    if (taskEventQueueRef.current.length > 40) {
+      void flushTaskEvents()
+    }
+  }
+
+  async function flushTaskEvents() {
+    if (!currentTaskRunId || !participantId || taskEventQueueRef.current.length === 0) return
+    const batch = taskEventQueueRef.current.splice(0, taskEventQueueRef.current.length)
+    try {
+      await fetch('/api/multimodal/task/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          participant_id: participantId,
+          task_run_id: currentTaskRunId,
+          events: batch,
+        }),
+      })
+    } catch {
+      // Keep the session resilient; failed event batch should not block assessment progress.
+    }
+  }
+
+  async function bootstrapMultimodalRuntime(pId: string) {
+    if (!pId || !sessionId) return
+    try {
+      const res = await fetch('/api/multimodal/session/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          participant_id: pId,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        logDebug('multimodal start failed', { status: res.status, error: data?.error })
+        return
+      }
+      const data = await res.json()
+      const taskRun = data.task_run as RuntimeTaskRun | null
+      if (taskRun?.id) {
+        setCurrentTaskRunId(taskRun.id)
+      }
+      if (data.task_widget?.type) {
+        setCurrentTaskDirective({
+          type: data.task_widget.type as TaskDirective['type'],
+          title: data.task_widget.title,
+          prompt: data.task_widget.prompt,
+        })
+      }
+      if (data.media_directive) {
+        setCurrentDirective(data.media_directive as MediaDirective)
+      }
+      logDebug('multimodal runtime started', {
+        action: data.action,
+        taskRunId: taskRun?.id ?? null,
+      })
+    } catch {
+      logDebug('multimodal runtime start error')
+    }
   }
 
   function speakQuestion(text: string, onDone: () => void) {
@@ -297,6 +443,7 @@ export default function SessionPage() {
         if (existing.length > 0) {
           logDebug('resuming', { count: existing.length })
           setMessages(existing)
+          await bootstrapMultimodalRuntime(pId)
           const aiCount = existing.filter((m) => m.role === 'ai').length
           setQuestionNumber(aiCount)
           setSessionStartMs(Date.now())
@@ -329,8 +476,14 @@ export default function SessionPage() {
       applyQuestionMetadata(
         (data.assessment_mode ?? 'voice') as AssessmentMode,
         data.media_directives as MediaDirective[] | undefined,
+        data.task_directive as TaskDirective | undefined,
         pId
       )
+      if ((data.assessment_mode ?? 'voice') === 'multimodal') {
+        await bootstrapMultimodalRuntime(pId)
+      }
+      setVisionEvidenceUsed(Boolean(data.vision_evidence_used))
+      setVisionImagesUsed(Number(data.vision_images_used ?? 0))
       setMessages([{ id: crypto.randomUUID(), session_id: sessionId, participant_id: null, role: 'ai', content: data.question, audio_url: null, timestamp: new Date().toISOString() }])
       setMaxQuestions(data.max_questions ?? 6)
       if (data.concept_tracker) setConceptTracker(data.concept_tracker as ConceptTracker)
@@ -381,8 +534,14 @@ export default function SessionPage() {
       applyQuestionMetadata(
         (data.assessment_mode ?? 'voice') as AssessmentMode,
         data.media_directives as MediaDirective[] | undefined,
+        data.task_directive as TaskDirective | undefined,
         pId
       )
+      if ((data.assessment_mode ?? 'voice') === 'multimodal' && !currentTaskRunId) {
+        await bootstrapMultimodalRuntime(pId)
+      }
+      setVisionEvidenceUsed(Boolean(data.vision_evidence_used))
+      setVisionImagesUsed(Number(data.vision_images_used ?? 0))
       if (data.concept_tracker) setConceptTracker(data.concept_tracker as ConceptTracker)
       if (data.should_finish) { await finishSession(history, nextQ); return }
 
@@ -443,17 +602,285 @@ export default function SessionPage() {
   const panelHeading = dk ? 'text-white/85' : 'text-gray-900'
   const panelBg = dk ? 'bg-black/20' : 'bg-gray-50'
 
-  const activeMaterial = currentDirective?.material_id ? materialsById[currentDirective.material_id] : null
+  const defaultSimulationMaterial = Object.values(materialsById).find((m) => {
+    const kind = typeof m.material_data?.kind === 'string' ? m.material_data.kind : ''
+    return kind === 'simulation' || /simulation|geogebra|phet/i.test(`${m.title} ${m.type}`)
+  }) ?? null
+
+  const effectiveDirective: MediaDirective | null = currentDirective ?? (defaultSimulationMaterial
+    ? {
+        type: 'simulation',
+        material_id: defaultSimulationMaterial.id,
+        url:
+          (typeof defaultSimulationMaterial.material_data?.embed_url === 'string'
+            ? defaultSimulationMaterial.material_data.embed_url
+            : typeof defaultSimulationMaterial.material_data?.url === 'string'
+            ? defaultSimulationMaterial.material_data.url
+            : ''),
+        context: 'Explore the simulation and use the data/task panel to support your answer.',
+      }
+    : null)
+
+  const activeMaterial = effectiveDirective?.material_id ? materialsById[effectiveDirective.material_id] : null
   const fallbackUrl =
     activeMaterial?.signed_url ||
-    currentDirective?.url ||
+    effectiveDirective?.url ||
     activeMaterial?.media_urls?.[0] ||
     ((activeMaterial?.material_data?.url as string | undefined) ?? null)
   const viewerTitle = activeMaterial?.title ?? 'Session material'
-  const viewerContext = currentDirective?.context ?? ''
+  const viewerContext = effectiveDirective?.context ?? ''
+
+  async function submitTaskWorkspaceAnswer() {
+    if (aiState !== 'idle') return
+    queueTaskEvent('task_submit_click', { task_run_id: currentTaskRunId || null })
+    await flushTaskEvents()
+
+    let screenshotRef = ''
+    if (screenshotFile && participantId) {
+      try {
+        const fd = new FormData()
+        fd.append('participant_id', participantId)
+        fd.append('file', screenshotFile)
+        const res = await fetch(`/api/sessions/${sessionId}/artifacts`, {
+          method: 'POST',
+          body: fd,
+        })
+        if (res.ok) {
+          const data = await res.json()
+          screenshotRef = data.signed_url ?? ''
+          setScreenshotAttached(true)
+        }
+      } catch {
+        screenshotRef = ''
+        setScreenshotAttached(false)
+      }
+    }
+
+    const nonEmptySelections = Object.values(taskSelections).filter((v) => String(v).trim().length > 0).length
+    const possibleSelectionCount = Math.max(Object.keys(taskSelections).length, 1)
+    const completeness = Math.max(
+      0,
+      Math.min(
+        1,
+        nonEmptySelections / possibleSelectionCount +
+          (taskResponse.trim() ? 0.25 : 0) +
+          (taskNotes.trim() ? 0.1 : 0) +
+          (screenshotRef ? 0.1 : 0)
+      )
+    )
+
+    let runtimeExaminerPrompt = ''
+    if (assessmentMode === 'multimodal' && currentTaskRunId && participantId) {
+      try {
+        const submitRes = await fetch('/api/multimodal/task/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: sessionId,
+            participant_id: participantId,
+            task_run_id: currentTaskRunId,
+            submission_data: {
+              correctness: Number(completeness.toFixed(3)),
+              time_spent_seconds: totalElapsed,
+              task_response: taskResponse,
+              task_notes: taskNotes,
+              task_selections: taskSelections,
+              screenshot_url: screenshotRef || null,
+            },
+          }),
+        })
+
+        if (submitRes.ok) {
+          const data = await submitRes.json()
+          runtimeExaminerPrompt = String(data.examiner_prompt ?? '')
+          const nextRun = data.next_task_run as RuntimeTaskRun | undefined
+          if (nextRun?.id) {
+            setCurrentTaskRunId(nextRun.id)
+            if (data.task_widget?.type) {
+              setCurrentTaskDirective({
+                type: data.task_widget.type as TaskDirective['type'],
+                title: data.task_widget.title,
+                prompt: data.task_widget.prompt,
+              })
+            }
+            if (data.media_directive) {
+              setCurrentDirective(data.media_directive as MediaDirective)
+            }
+          }
+        }
+      } catch {
+        logDebug('multimodal task submit failed')
+      }
+    }
+
+    const parts = [
+      currentTaskDirective?.title ? `Task: ${currentTaskDirective.title}` : 'Task response',
+      currentTaskDirective?.prompt ? `Prompt: ${currentTaskDirective.prompt}` : '',
+      taskResponse ? `Student response: ${taskResponse}` : '',
+      taskNotes ? `Workspace notes: ${taskNotes}` : '',
+      screenshotFile ? `Screenshot attached: ${screenshotFile.name}` : '',
+      screenshotRef ? `Screenshot URL: ${screenshotRef}` : '',
+      Object.keys(taskSelections).length > 0
+        ? `Structured entries: ${Object.entries(taskSelections).map(([k, v]) => `${k}=${v}`).join(', ')}`
+        : '',
+      runtimeExaminerPrompt ? `Orchestrator follow-up: ${runtimeExaminerPrompt}` : '',
+    ].filter(Boolean)
+    const merged = parts.join('\n')
+    if (!merged.trim()) return
+    void handleStudentResponse(merged)
+  }
+
+  function updateTaskSelection(key: string, value: string) {
+    setTaskSelections((prev) => ({ ...prev, [key]: value }))
+    queueTaskEvent('task_input', { key, value })
+  }
+
+  function renderGraphPreview() {
+    const rows = [1, 2, 3, 4, 5]
+      .map((row) => ({
+        x: toNumeric(taskSelections[`${row}-Input`] ?? ''),
+        y: toNumeric(taskSelections[`${row}-Output`] ?? ''),
+      }))
+      .filter((p): p is { x: number; y: number } => p.x !== null && p.y !== null)
+      .sort((a, b) => a.x - b.x)
+
+    if (rows.length < 2) {
+      return <p className={`text-[11px] ${panelMuted}`}>Enter at least 2 numeric Input/Output pairs to preview the graph.</p>
+    }
+
+    const xMin = Math.min(...rows.map((p) => p.x))
+    const xMax = Math.max(...rows.map((p) => p.x))
+    const yMin = Math.min(...rows.map((p) => p.y))
+    const yMax = Math.max(...rows.map((p) => p.y))
+    const w = 280
+    const h = 150
+    const pad = 20
+    const xSpan = Math.max(xMax - xMin, 1)
+    const ySpan = Math.max(yMax - yMin, 1)
+
+    const points = rows.map((p) => ({
+      x: pad + ((p.x - xMin) / xSpan) * (w - pad * 2),
+      y: h - pad - ((p.y - yMin) / ySpan) * (h - pad * 2),
+    }))
+
+    const path = buildLinePath(points)
+
+    return (
+      <div className="rounded-lg border border-black/10 bg-black/5 p-2">
+        <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-[150px]">
+          <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke="currentColor" className={dk ? 'text-white/35' : 'text-gray-500'} />
+          <line x1={pad} y1={pad} x2={pad} y2={h - pad} stroke="currentColor" className={dk ? 'text-white/35' : 'text-gray-500'} />
+          <path d={path} fill="none" stroke="#3b82f6" strokeWidth="2" />
+          {points.map((p, idx) => (
+            <circle key={idx} cx={p.x} cy={p.y} r="3" fill="#1d4ed8" />
+          ))}
+        </svg>
+      </div>
+    )
+  }
+
+  function renderTaskWorkspace() {
+    if (!currentTaskDirective) return null
+
+    const title = currentTaskDirective.title || 'Interactive task'
+    const prompt = currentTaskDirective.prompt || 'Use the media and provide your evidence-based answer.'
+
+    if (currentTaskDirective.type === 'iv_dv_cv_sort') {
+      return (
+        <div className={`rounded-xl border border-black/10 p-3 space-y-3 ${panelBg}`}>
+          <p className={`text-xs font-semibold ${panelHeading}`}>{title}</p>
+          <p className={`text-xs ${panelMuted}`}>{prompt}</p>
+          <div className="grid grid-cols-1 gap-2">
+            {['Variable A', 'Variable B', 'Variable C'].map((v) => (
+              <div key={v} className="grid grid-cols-[1fr_120px] gap-2">
+                <input
+                  value={taskSelections[`${v}-name`] ?? ''}
+                  onChange={(e) => updateTaskSelection(`${v}-name`, e.target.value)}
+                  placeholder={`${v} name`}
+                  className="px-2 py-1.5 text-xs rounded border border-gray-300 bg-white/90 text-gray-800"
+                />
+                <select
+                  value={taskSelections[`${v}-role`] ?? ''}
+                  onChange={(e) => updateTaskSelection(`${v}-role`, e.target.value)}
+                  className="px-2 py-1.5 text-xs rounded border border-gray-300 bg-white/90 text-gray-800"
+                >
+                  <option value="">Type</option>
+                  <option value="IV">IV</option>
+                  <option value="DV">DV</option>
+                  <option value="CV">CV</option>
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
+    if (currentTaskDirective.type === 'table_completion') {
+      return (
+        <div className={`rounded-xl border border-black/10 p-3 space-y-3 ${panelBg}`}>
+          <p className={`text-xs font-semibold ${panelHeading}`}>{title}</p>
+          <p className={`text-xs ${panelMuted}`}>{prompt}</p>
+          <div className="grid gap-2">
+            {[1, 2, 3, 4, 5].map((row) => (
+              <div key={row} className="grid grid-cols-3 gap-2">
+                {['Input', 'Output', 'Note'].map((col) => (
+                  <input
+                    key={`${row}-${col}`}
+                    value={taskSelections[`${row}-${col}`] ?? ''}
+                    onChange={(e) => updateTaskSelection(`${row}-${col}`, e.target.value)}
+                    placeholder={`${col} ${row}`}
+                    className="px-2 py-1.5 text-xs rounded border border-gray-300 bg-white/90 text-gray-800"
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+          <div className="space-y-1">
+            <p className={`text-[11px] font-medium ${panelMuted}`}>Auto graph preview (Input vs Output)</p>
+            {renderGraphPreview()}
+          </div>
+        </div>
+      )
+    }
+
+    if (currentTaskDirective.type === 'matching') {
+      return (
+        <div className={`rounded-xl border border-black/10 p-3 space-y-3 ${panelBg}`}>
+          <p className={`text-xs font-semibold ${panelHeading}`}>{title}</p>
+          <p className={`text-xs ${panelMuted}`}>{prompt}</p>
+          <div className="grid gap-2">
+            {['A', 'B', 'C'].map((left) => (
+              <div key={left} className="grid grid-cols-[1fr_1fr] gap-2">
+                <input
+                  value={taskSelections[`left-${left}`] ?? ''}
+                  onChange={(e) => updateTaskSelection(`left-${left}`, e.target.value)}
+                  placeholder={`Item ${left}`}
+                  className="px-2 py-1.5 text-xs rounded border border-gray-300 bg-white/90 text-gray-800"
+                />
+                <input
+                  value={taskSelections[`right-${left}`] ?? ''}
+                  onChange={(e) => updateTaskSelection(`right-${left}`, e.target.value)}
+                  placeholder={`Match for ${left}`}
+                  className="px-2 py-1.5 text-xs rounded border border-gray-300 bg-white/90 text-gray-800"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className={`rounded-xl border border-black/10 p-3 space-y-2 ${panelBg}`}>
+        <p className={`text-xs font-semibold ${panelHeading}`}>{title}</p>
+        <p className={`text-xs ${panelMuted}`}>{prompt}</p>
+      </div>
+    )
+  }
 
   function renderMediaContent() {
-    if (!currentDirective) {
+    if (!effectiveDirective) {
       return (
         <div className={`rounded-xl p-4 text-sm ${panelBg} ${panelMuted}`}>
           The AI will surface visuals here when needed.
@@ -461,22 +888,22 @@ export default function SessionPage() {
       )
     }
 
-    if (!activeMaterial && !currentDirective.url) {
+    if (!activeMaterial && !effectiveDirective.url) {
       return (
         <div className={`rounded-xl p-4 text-sm ${panelBg} ${panelMuted}`}>
-          Could not resolve media item <span className="font-mono">{currentDirective.material_id ?? 'unknown'}</span>.
+          Could not resolve media item <span className="font-mono">{effectiveDirective.material_id ?? 'unknown'}</span>.
         </div>
       )
     }
 
-    if (currentDirective.type === 'image') {
+    if (effectiveDirective.type === 'image') {
       if (!fallbackUrl) {
         return <div className={`rounded-xl p-4 text-sm ${panelBg} ${panelMuted}`}>Image source not available.</div>
       }
       return <img src={fallbackUrl} alt={viewerTitle} className="w-full rounded-xl border border-black/10 object-contain max-h-[320px]" />
     }
 
-    if (currentDirective.type === 'video') {
+    if (effectiveDirective.type === 'video') {
       if (!fallbackUrl) {
         return <div className={`rounded-xl p-4 text-sm ${panelBg} ${panelMuted}`}>Video source not available.</div>
       }
@@ -497,16 +924,16 @@ export default function SessionPage() {
               <video src={fallbackUrl} controls className="w-full h-full object-cover" />
             )}
           </div>
-          {(typeof currentDirective.start === 'number' || typeof currentDirective.end === 'number') && (
+          {(typeof effectiveDirective.start === 'number' || typeof effectiveDirective.end === 'number') && (
             <p className={`text-xs ${panelMuted}`}>
-              Clip focus: {currentDirective.start ?? 0}s to {currentDirective.end ?? 'end'}s
+              Clip focus: {effectiveDirective.start ?? 0}s to {effectiveDirective.end ?? 'end'}s
             </p>
           )}
         </div>
       )
     }
 
-    if (currentDirective.type === 'simulation') {
+    if (effectiveDirective.type === 'simulation') {
       if (!fallbackUrl) {
         return <div className={`rounded-xl p-4 text-sm ${panelBg} ${panelMuted}`}>Simulation URL not available.</div>
       }
@@ -621,8 +1048,72 @@ export default function SessionPage() {
                 <p className={`text-[10px] font-semibold uppercase tracking-widest mb-1 ${captionLabel}`}>Media Viewer</p>
                 <h3 className={`text-sm font-semibold ${panelHeading}`}>{viewerTitle}</h3>
                 {viewerContext && <p className={`text-xs mt-1 ${panelMuted}`}>{viewerContext}</p>}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {screenshotAttached && (
+                    <span className="inline-flex items-center rounded-full border border-emerald-300/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">
+                      Screenshot attached
+                    </span>
+                  )}
+                  {visionEvidenceUsed && (
+                    <span className="inline-flex items-center rounded-full border border-blue-300/50 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-500">
+                      Vision evidence analyzed{visionImagesUsed > 0 ? ` (${visionImagesUsed})` : ''}
+                    </span>
+                  )}
+                </div>
               </div>
+              {renderTaskWorkspace()}
               {renderMediaContent()}
+              {currentTaskDirective && (
+                <div className="space-y-2">
+                  <textarea
+                    value={taskNotes}
+                    onChange={(e) => {
+                      setTaskNotes(e.target.value)
+                      queueTaskEvent('task_notes', { value: e.target.value })
+                    }}
+                    rows={2}
+                    placeholder="Notes: observations, variable behavior, trend summary..."
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white/90 text-gray-800 text-xs resize-none"
+                  />
+                  <textarea
+                    value={taskResponse}
+                    onChange={(e) => {
+                      setTaskResponse(e.target.value)
+                      queueTaskEvent('task_response_draft', { value: e.target.value })
+                    }}
+                    rows={3}
+                    placeholder="Write your observation from the simulation/graph/task..."
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white/90 text-gray-800 text-xs resize-none"
+                  />
+                  <div className="space-y-1">
+                    <label className={`block text-[11px] ${panelMuted}`}>Attach screenshot evidence (optional)</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0] ?? null
+                        setScreenshotFile(f)
+                        queueTaskEvent('task_file_select', { file_name: f?.name ?? null })
+                        if (screenshotPreviewUrl) {
+                          URL.revokeObjectURL(screenshotPreviewUrl)
+                        }
+                        setScreenshotPreviewUrl(f ? URL.createObjectURL(f) : null)
+                      }}
+                      className="w-full text-[11px]"
+                    />
+                    {screenshotPreviewUrl && (
+                      <img src={screenshotPreviewUrl} alt="Task screenshot preview" className="w-full max-h-24 object-cover rounded border border-black/10" />
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={submitTaskWorkspaceAnswer}
+                    className="w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors"
+                  >
+                    Submit task response to examiner
+                  </button>
+                </div>
+              )}
             </aside>
           )}
         </div>

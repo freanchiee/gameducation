@@ -82,7 +82,7 @@ export default async function EvaluationDetailPage({
   const effectiveCriterionA = ev.teacher_override_level ?? ev.criterion_a_level
 
   return (
-    <div className="max-w-3xl">
+    <div className="w-full">
       {/* Header */}
       <div className="flex items-start justify-between mb-8">
         <div className="flex items-center gap-3">

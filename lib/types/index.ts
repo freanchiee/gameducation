@@ -37,6 +37,26 @@ export interface ClassEnrolment {
 export type AssessmentCriterion = 'A' | 'B' | 'C' | 'D'
 export type AssessmentStatus = 'draft' | 'active' | 'closed'
 export type AssessmentMode = 'voice' | 'multimodal'
+export type MultimodalEngineMode = 'auto' | 'advanced'
+export type MultimodalTaskType =
+  | 'simulation_probe'
+  | 'graph_analysis'
+  | 'table_completion'
+  | 'iv_dv_cv_sort'
+  | 'matching'
+  | 'fill_blank'
+  | 'short_answer'
+  | 'extended_response'
+
+export type CanonicalMultimodalTaskType =
+  | 'variable_sorter'
+  | 'variable_matching'
+  | 'simulation_data_collection'
+  | 'graph_interpretation'
+  | 'claim_evidence_reasoning'
+  | 'error_analysis'
+  | 'investigation_design'
+  | 'reflection_evaluation'
 
 export interface Assessment {
   id: string
@@ -54,6 +74,8 @@ export interface Assessment {
   topic_context: string | null           // what was taught before this assessment
   status: AssessmentStatus
   assessment_mode: AssessmentMode
+  multimodal_engine_mode: MultimodalEngineMode
+  multimodal_task_types: MultimodalTaskType[]
   tab_lock_enabled: boolean
   proctoring_enabled: boolean
   access_code: string                    // 6-char uppercase
@@ -110,6 +132,71 @@ export interface SessionParticipant {
   joined_at: string
 }
 
+export interface MultimodalTaskTemplate {
+  id: string
+  title: string
+  task_type: CanonicalMultimodalTaskType
+  criterion: AssessmentCriterion
+  difficulty_level: number
+  config: Record<string, unknown>
+  estimated_duration_seconds: number
+  created_at: string
+}
+
+export interface SessionTaskRun {
+  id: string
+  session_id: string
+  task_id: string
+  participant_id: string
+  student_id: string | null
+  criterion: AssessmentCriterion
+  task_sequence: number
+  status: 'pending' | 'in_progress' | 'submitted' | 'skipped' | 'error'
+  task_config: Record<string, unknown>
+  submission_data: Record<string, unknown> | null
+  started_at: string | null
+  submitted_at: string | null
+  created_at: string
+}
+
+export interface TaskEvent {
+  id: string
+  task_run_id: string
+  session_id: string
+  participant_id: string
+  event_type: string
+  event_data: Record<string, unknown>
+  timestamp: string
+}
+
+export interface RubricEvidence {
+  id: string
+  session_id: string
+  participant_id: string
+  student_id: string | null
+  task_run_id: string | null
+  criterion: AssessmentCriterion
+  evidence_type: string
+  indicated_level: number | null
+  weight: number
+  evidence_value: Record<string, unknown>
+  created_at: string
+}
+
+export interface ScoringDecision {
+  id: string
+  session_id: string
+  participant_id: string
+  student_id: string | null
+  criterion: AssessmentCriterion
+  rubric_level: number
+  rubric_level_band: string | null
+  justification: string
+  evidence_summary: Record<string, unknown>
+  confidence_score: number | null
+  created_at: string
+}
+
 export type MessageRole = 'ai' | 'student'
 
 export interface Message {
@@ -161,10 +248,13 @@ export interface AssessorPromptParams {
   topic: string
   yearGroup: string
   teacherContext: string
+  assessmentCriteria?: AssessmentCriterion[]
   questionNumber: number
   maxQuestions: number
   multimodalSummary?: string
   multimodalMode?: boolean
+  multimodalEngineMode?: MultimodalEngineMode
+  multimodalTaskTypes?: MultimodalTaskType[]
   customInstructions?: string
 }
 

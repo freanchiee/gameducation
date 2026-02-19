@@ -4,7 +4,11 @@ import { ArrowLeft } from 'lucide-react'
 import NewAssessmentForm from '@/components/teacher/NewAssessmentForm'
 import { Class } from '@/lib/types'
 
-export default async function NewAssessmentPage() {
+export default async function NewAssessmentPage({
+  searchParams,
+}: {
+  searchParams?: { draft?: string }
+}) {
   const supabase = await createClient()
   const {
     data: { user },
@@ -17,7 +21,7 @@ export default async function NewAssessmentPage() {
     .order('created_at', { ascending: false })
 
   return (
-    <div className="max-w-2xl">
+    <div className="w-full">
       <div className="flex items-center gap-3 mb-8">
         <Link href="/assessments" className="text-gray-400 hover:text-gray-600 transition-colors">
           <ArrowLeft size={20} />
@@ -30,7 +34,10 @@ export default async function NewAssessmentPage() {
         </div>
       </div>
 
-      <NewAssessmentForm classes={(classes ?? []) as Class[]} />
+      <NewAssessmentForm
+        classes={(classes ?? []) as Class[]}
+        initialServerDraftId={searchParams?.draft}
+      />
     </div>
   )
 }
