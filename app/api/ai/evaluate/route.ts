@@ -4,6 +4,12 @@ import { buildEvaluationPrompt } from '@/lib/prompts/rubrics'
 import { claudeClient } from '@/lib/claude'
 import type { Message } from '@/lib/types'
 
+function safeParseJSON(raw: string) {
+  // Strip markdown fences if Claude wrapped response
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+  return JSON.parse(cleaned)
+}
+
 export async function POST(request: Request) {
   const startedAt = Date.now()
   const reqId = Math.random().toString(36).slice(2, 10)
@@ -69,7 +75,7 @@ export async function POST(request: Request) {
     }
 
     try {
-      evaluation = JSON.parse(rawText)
+      evaluation = safeParseJSON(rawText)
     } catch {
       return NextResponse.json({ error: 'Failed to parse evaluation JSON' }, { status: 500 })
     }

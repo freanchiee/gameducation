@@ -97,7 +97,7 @@ export default function SessionPage() {
 
     if (!initialized.current) {
       initialized.current = true
-      startSession(sName, pId)
+      recoverOrStartSession(sName, pId)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -119,6 +119,30 @@ export default function SessionPage() {
     } catch {
       setAllowTextInput(false)
     }
+  }
+
+  async function recoverOrStartSession(name: string, pId: string) {
+    // Try to recover existing messages from DB (if page refreshed mid-session)
+    try {
+      const res = await fetch(`/api/transcripts?session_id=${sessionId}`)
+      if (res.ok) {
+        const data = await res.json()
+        const existingMessages = data.messages as Message[]
+        if (existingMessages.length > 0) {
+          // Session in progress — restore state
+          const aiMessages = existingMessages.filter(m => m.role === 'ai')
+          setMessages(existingMessages)
+          setQuestionNumber(aiMessages.length + 1)
+          setAiState('idle')
+          return
+        }
+      }
+    } catch {
+      // If recovery fails, proceed to start fresh
+    }
+
+    // No existing messages — start from beginning
+    startSession(name, pId)
   }
 
   async function startSession(name: string, pId: string) {
@@ -202,6 +226,18 @@ export default function SessionPage() {
       transcriptLength: transcript.length,
       historySize: nextMessages.length,
     })
+
+    // Fire-and-forget: persist student message to DB
+    fetch('/api/transcripts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: sessionId,
+        participant_id: participantId,
+        role: 'student',
+        content: transcript,
+      }),
+    }).catch(() => {}) // Ignore errors; message is in React state anyway
 
     const nextQ = questionNumber + 1
     if (nextQ > maxQuestions) {
