@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import { Moon, Sun } from 'lucide-react'
+import { Moon, Sun, Volume2, VolumeX } from 'lucide-react'
 import VoiceInterface from '@/components/assessment/VoiceInterface'
+import SimulationEmbed from '@/components/multimodal/SimulationEmbed'
+import { simViewerUrl, normaliseSimulationUrl } from '@/lib/sim-embed'
 import type { Message } from '@/lib/types'
 
 type AIState = 'idle' | 'listening' | 'processing' | 'speaking'
@@ -191,6 +193,8 @@ export default function SessionPage() {
 
   // UI state
   const [theme, setTheme] = useState<'light' | 'dark'>('dark')
+  const [isMuted, setIsMuted] = useState(false)
+  const isMutedRef = useRef(false)
   const [liveDraft, setLiveDraft] = useState('')
   const [sessionStartMs, setSessionStartMs] = useState(0)
   const [totalElapsed, setTotalElapsed] = useState(0)
@@ -404,8 +408,18 @@ export default function SessionPage() {
     }
   }
 
+  function toggleMute() {
+    const next = !isMutedRef.current
+    isMutedRef.current = next
+    setIsMuted(next)
+    if (next && typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel()
+    }
+  }
+
   function speakQuestion(text: string, onDone: () => void) {
     if (typeof window === 'undefined' || !window.speechSynthesis) { onDone(); return }
+    if (isMutedRef.current) { onDone(); return }
     const synth = window.speechSynthesis
     const utterance = new SpeechSynthesisUtterance(text)
     utterance.rate = 0.95; utterance.pitch = 1; utterance.volume = 1
@@ -629,6 +643,9 @@ export default function SessionPage() {
     ((activeMaterial?.material_data?.url as string | undefined) ?? null)
   const viewerTitle = activeMaterial?.title ?? 'Session material'
   const viewerContext = effectiveDirective?.context ?? ''
+  // Clean sim URLs — normalise away broken id/false patterns
+  const normalisedSimUrl = normaliseSimulationUrl(fallbackUrl)
+  const cleanViewerUrl = simViewerUrl(normalisedSimUrl ?? fallbackUrl)
 
   async function submitTaskWorkspaceAnswer() {
     if (aiState !== 'idle') return
@@ -934,17 +951,11 @@ export default function SessionPage() {
     }
 
     if (effectiveDirective.type === 'simulation') {
-      if (!fallbackUrl) {
-        return <div className={`rounded-xl p-4 text-sm ${panelBg} ${panelMuted}`}>Simulation URL not available.</div>
-      }
       return (
         <div className="space-y-2">
           <div className="aspect-video w-full overflow-hidden rounded-xl border border-black/10">
-            <iframe src={fallbackUrl} title={viewerTitle} className="w-full h-full" />
+            <SimulationEmbed rawUrl={fallbackUrl} title={viewerTitle} className="w-full h-full" />
           </div>
-          <a href={fallbackUrl} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:text-blue-400">
-            Open simulation in new tab
-          </a>
         </div>
       )
     }
@@ -996,6 +1007,14 @@ export default function SessionPage() {
         <div className="flex items-center gap-2">
           <span className={`text-xs tabular-nums ${timerText}`}>{formatSeconds(totalElapsed)}</span>
           <button
+            onClick={toggleMute}
+            aria-label={isMuted ? 'Unmute AI voice' : 'Mute AI voice'}
+            title={isMuted ? 'Unmute AI voice' : 'Mute AI voice'}
+            className={`p-1.5 rounded-full transition-colors ${toggleBtn} ${isMuted ? (dk ? 'text-amber-400/80' : 'text-amber-600') : ''}`}
+          >
+            {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+          </button>
+          <button
             onClick={toggleTheme}
             aria-label={dk ? 'Switch to light mode' : 'Switch to dark mode'}
             className={`p-1.5 rounded-full transition-colors ${toggleBtn}`}
@@ -1006,63 +1025,84 @@ export default function SessionPage() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 min-h-0 px-4 lg:px-6 pt-5 pb-3">
-        <div className="h-full w-full max-w-[1280px] mx-auto grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-5">
-          <div className="flex flex-col items-center justify-center gap-6 min-h-0">
-            {/* AI question caption */}
-            <div className="w-full max-w-xl">
-              {currentAiQuestion ? (
-                <div className={`rounded-2xl px-5 py-4 text-center ${captionCard}`}>
-                  <p className={`text-[10px] font-semibold uppercase tracking-widest mb-2 ${captionLabel}`}>AI Examiner</p>
-                  <p className={`text-sm leading-relaxed ${captionText}`}>{currentAiQuestion}</p>
-                </div>
-              ) : aiState === 'processing' ? (
-                <div className={`rounded-2xl px-5 py-4 text-center ${captionCard}`}>
-                  <span className="inline-flex gap-1.5">
-                    {[0, 150, 300].map((delay) => (
-                      <span key={delay} className="w-1.5 h-1.5 rounded-full bg-amber-400/60 animate-bounce" style={{ animationDelay: `${delay}ms` }} />
-                    ))}
-                  </span>
-                </div>
-              ) : null}
+      {assessmentMode === 'multimodal' && effectiveDirective?.type === 'simulation' ? (
+        /* ── Simulation layout: sim 70% left | voice+task panel 30% right ── */
+        <div className="flex-1 min-h-0 flex overflow-hidden">
+
+          {/* LEFT 70% — Simulation iframe */}
+          <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+            {/* Sim header bar */}
+            <div className={`flex-none flex items-center justify-between px-4 py-2 border-b ${dk ? 'border-white/8 bg-black/20' : 'border-gray-200 bg-white/60'}`}>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className={`text-[10px] font-bold uppercase tracking-widest ${captionLabel}`}>Simulation</span>
+                <span className={`text-xs truncate ${dk ? 'text-white/60' : 'text-gray-600'}`}>{viewerTitle}</span>
+              </div>
+              {viewerContext && (
+                <span className={`text-[11px] hidden lg:block ${panelMuted}`}>{viewerContext}</span>
+              )}
+              {cleanViewerUrl && (
+                <a
+                  href={cleanViewerUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={`flex-none text-[11px] underline ml-3 ${dk ? 'text-blue-400/70 hover:text-blue-300' : 'text-blue-500 hover:text-blue-700'}`}
+                >
+                  Open in new tab ↗
+                </a>
+              )}
             </div>
 
-            {/* Animated orb */}
-            <AssessmentOrb aiState={aiState} dark={dk} />
-
-            {/* Live student draft */}
-            <div className="w-full max-w-xl min-h-[48px] flex items-center justify-center">
-              {liveDraft ? (
-                <div className={`w-full rounded-2xl px-5 py-3 text-center ${draftCard}`}>
-                  <p className={`text-sm italic leading-relaxed ${draftText}`}>{liveDraft}</p>
-                </div>
-              ) : aiState === 'idle' && currentAiQuestion ? (
-                <p className={`text-xs ${hintText}`}>Tap the mic below and speak your answer</p>
-              ) : null}
+            {/* Full-height simulation embed */}
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <SimulationEmbed
+                rawUrl={fallbackUrl}
+                title={viewerTitle}
+                className="w-full h-full"
+              />
             </div>
           </div>
 
-          {assessmentMode === 'multimodal' && (
-            <aside className={`rounded-2xl p-4 lg:p-5 ${panelCard} flex flex-col gap-3 overflow-hidden`}>
-              <div>
-                <p className={`text-[10px] font-semibold uppercase tracking-widest mb-1 ${captionLabel}`}>Media Viewer</p>
-                <h3 className={`text-sm font-semibold ${panelHeading}`}>{viewerTitle}</h3>
-                {viewerContext && <p className={`text-xs mt-1 ${panelMuted}`}>{viewerContext}</p>}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {screenshotAttached && (
-                    <span className="inline-flex items-center rounded-full border border-emerald-300/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">
-                      Screenshot attached
-                    </span>
-                  )}
-                  {visionEvidenceUsed && (
-                    <span className="inline-flex items-center rounded-full border border-blue-300/50 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-500">
-                      Vision evidence analyzed{visionImagesUsed > 0 ? ` (${visionImagesUsed})` : ''}
-                    </span>
-                  )}
+          {/* RIGHT 30% — Voice + task panel */}
+          <aside className={`w-[30%] min-w-[280px] max-w-[380px] flex flex-col overflow-hidden border-l ${dk ? 'border-white/8 bg-[#0d1117]' : 'border-gray-200 bg-white'}`}>
+
+            {/* AI question */}
+            <div className={`flex-none px-4 pt-4 pb-3 border-b ${dk ? 'border-white/8' : 'border-gray-100'}`}>
+              <p className={`text-[10px] font-semibold uppercase tracking-widest mb-1.5 ${captionLabel}`}>AI Examiner</p>
+              {currentAiQuestion ? (
+                <p className={`text-sm leading-snug ${dk ? 'text-white/90' : 'text-gray-800'}`}>{currentAiQuestion}</p>
+              ) : aiState === 'processing' ? (
+                <span className="inline-flex gap-1.5 py-1">
+                  {[0, 150, 300].map((d) => (
+                    <span key={d} className="w-1.5 h-1.5 rounded-full bg-amber-400/60 animate-bounce" style={{ animationDelay: `${d}ms` }} />
+                  ))}
+                </span>
+              ) : (
+                <p className={`text-xs ${hintText}`}>Speak your observation below.</p>
+              )}
+              {/* Muted indicator */}
+              {isMuted && (
+                <div className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${dk ? 'bg-amber-400/10 text-amber-400' : 'bg-amber-100 text-amber-700'}`}>
+                  <VolumeX size={10} /> Voice muted
                 </div>
+              )}
+            </div>
+
+            {/* Orb (compact) */}
+            <div className="flex-none flex items-center justify-center py-3">
+              <AssessmentOrb aiState={aiState} dark={dk} />
+            </div>
+
+            {/* Live draft */}
+            {liveDraft && (
+              <div className={`flex-none mx-4 mb-2 rounded-xl px-3 py-2 text-center ${draftCard}`}>
+                <p className={`text-xs italic leading-snug ${draftText}`}>{liveDraft}</p>
               </div>
+            )}
+
+            {/* Task workspace + notes + submit — scrollable */}
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-2 space-y-2">
               {renderTaskWorkspace()}
-              {renderMediaContent()}
+
               {currentTaskDirective && (
                 <div className="space-y-2">
                   <textarea
@@ -1072,7 +1112,7 @@ export default function SessionPage() {
                       queueTaskEvent('task_notes', { value: e.target.value })
                     }}
                     rows={2}
-                    placeholder="Notes: observations, variable behavior, trend summary..."
+                    placeholder="Notes: observations, variable behaviour…"
                     className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white/90 text-gray-800 text-xs resize-none"
                   />
                   <textarea
@@ -1082,11 +1122,11 @@ export default function SessionPage() {
                       queueTaskEvent('task_response_draft', { value: e.target.value })
                     }}
                     rows={3}
-                    placeholder="Write your observation from the simulation/graph/task..."
+                    placeholder="Write your observation from the simulation…"
                     className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white/90 text-gray-800 text-xs resize-none"
                   />
                   <div className="space-y-1">
-                    <label className={`block text-[11px] ${panelMuted}`}>Attach screenshot evidence (optional)</label>
+                    <label className={`block text-[11px] ${panelMuted}`}>Screenshot evidence (optional)</label>
                     <input
                       type="file"
                       accept="image/*"
@@ -1094,15 +1134,13 @@ export default function SessionPage() {
                         const f = e.target.files?.[0] ?? null
                         setScreenshotFile(f)
                         queueTaskEvent('task_file_select', { file_name: f?.name ?? null })
-                        if (screenshotPreviewUrl) {
-                          URL.revokeObjectURL(screenshotPreviewUrl)
-                        }
+                        if (screenshotPreviewUrl) URL.revokeObjectURL(screenshotPreviewUrl)
                         setScreenshotPreviewUrl(f ? URL.createObjectURL(f) : null)
                       }}
                       className="w-full text-[11px]"
                     />
                     {screenshotPreviewUrl && (
-                      <img src={screenshotPreviewUrl} alt="Task screenshot preview" className="w-full max-h-24 object-cover rounded border border-black/10" />
+                      <img src={screenshotPreviewUrl} alt="Task screenshot preview" className="w-full max-h-20 object-cover rounded border border-black/10" />
                     )}
                   </div>
                   <button
@@ -1110,28 +1148,175 @@ export default function SessionPage() {
                     onClick={submitTaskWorkspaceAnswer}
                     className="w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors"
                   >
-                    Submit task response to examiner
+                    Submit to examiner →
                   </button>
                 </div>
               )}
-            </aside>
-          )}
-        </div>
-      </div>
 
-      {/* Voice input bar */}
-      <VoiceInterface
-        aiState={aiState}
-        onResponse={handleStudentResponse}
-        disabled={aiState !== 'idle'}
-        allowTextInput={allowTextInput}
-        onDraftChange={setLiveDraft}
-        variant={theme}
-      />
+              {/* Badges */}
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {screenshotAttached && (
+                  <span className="inline-flex items-center rounded-full border border-emerald-300/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">
+                    Screenshot attached
+                  </span>
+                )}
+                {visionEvidenceUsed && (
+                  <span className="inline-flex items-center rounded-full border border-blue-300/50 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-500">
+                    Vision analysed{visionImagesUsed > 0 ? ` (${visionImagesUsed})` : ''}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Voice bar — pinned to bottom of right panel */}
+            <div className="flex-none">
+              <VoiceInterface
+                aiState={aiState}
+                onResponse={handleStudentResponse}
+                disabled={aiState !== 'idle'}
+                allowTextInput={allowTextInput}
+                onDraftChange={setLiveDraft}
+                variant={theme}
+              />
+            </div>
+          </aside>
+        </div>
+      ) : (
+        /* ── Default layout: centred orb + optional right panel ── */
+        <div className="flex-1 min-h-0 px-4 lg:px-6 pt-5 pb-3">
+          <div className="h-full w-full max-w-[1280px] mx-auto grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-5">
+            <div className="flex flex-col items-center justify-center gap-6 min-h-0">
+              {/* AI question caption */}
+              <div className="w-full max-w-xl">
+                {currentAiQuestion ? (
+                  <div className={`rounded-2xl px-5 py-4 text-center ${captionCard}`}>
+                    <p className={`text-[10px] font-semibold uppercase tracking-widest mb-2 ${captionLabel}`}>AI Examiner</p>
+                    <p className={`text-sm leading-relaxed ${captionText}`}>{currentAiQuestion}</p>
+                    {isMuted && (
+                      <p className={`mt-1.5 text-[10px] inline-flex items-center gap-1 ${dk ? 'text-amber-400/70' : 'text-amber-600/80'}`}>
+                        <VolumeX size={10} /> Voice muted
+                      </p>
+                    )}
+                  </div>
+                ) : aiState === 'processing' ? (
+                  <div className={`rounded-2xl px-5 py-4 text-center ${captionCard}`}>
+                    <span className="inline-flex gap-1.5">
+                      {[0, 150, 300].map((delay) => (
+                        <span key={delay} className="w-1.5 h-1.5 rounded-full bg-amber-400/60 animate-bounce" style={{ animationDelay: `${delay}ms` }} />
+                      ))}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Animated orb */}
+              <AssessmentOrb aiState={aiState} dark={dk} />
+
+              {/* Live student draft */}
+              <div className="w-full max-w-xl min-h-[48px] flex items-center justify-center">
+                {liveDraft ? (
+                  <div className={`w-full rounded-2xl px-5 py-3 text-center ${draftCard}`}>
+                    <p className={`text-sm italic leading-relaxed ${draftText}`}>{liveDraft}</p>
+                  </div>
+                ) : aiState === 'idle' && currentAiQuestion ? (
+                  <p className={`text-xs ${hintText}`}>Tap the mic below and speak your answer</p>
+                ) : null}
+              </div>
+            </div>
+
+            {assessmentMode === 'multimodal' && (
+              <aside className={`rounded-2xl p-4 lg:p-5 ${panelCard} flex flex-col gap-3 overflow-hidden`}>
+                <div>
+                  <p className={`text-[10px] font-semibold uppercase tracking-widest mb-1 ${captionLabel}`}>Media Viewer</p>
+                  <h3 className={`text-sm font-semibold ${panelHeading}`}>{viewerTitle}</h3>
+                  {viewerContext && <p className={`text-xs mt-1 ${panelMuted}`}>{viewerContext}</p>}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {screenshotAttached && (
+                      <span className="inline-flex items-center rounded-full border border-emerald-300/50 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">
+                        Screenshot attached
+                      </span>
+                    )}
+                    {visionEvidenceUsed && (
+                      <span className="inline-flex items-center rounded-full border border-blue-300/50 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-500">
+                        Vision evidence analyzed{visionImagesUsed > 0 ? ` (${visionImagesUsed})` : ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {renderTaskWorkspace()}
+                {renderMediaContent()}
+                {currentTaskDirective && (
+                  <div className="space-y-2">
+                    <textarea
+                      value={taskNotes}
+                      onChange={(e) => {
+                        setTaskNotes(e.target.value)
+                        queueTaskEvent('task_notes', { value: e.target.value })
+                      }}
+                      rows={2}
+                      placeholder="Notes: observations, variable behavior, trend summary..."
+                      className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white/90 text-gray-800 text-xs resize-none"
+                    />
+                    <textarea
+                      value={taskResponse}
+                      onChange={(e) => {
+                        setTaskResponse(e.target.value)
+                        queueTaskEvent('task_response_draft', { value: e.target.value })
+                      }}
+                      rows={3}
+                      placeholder="Write your observation from the simulation/graph/task..."
+                      className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white/90 text-gray-800 text-xs resize-none"
+                    />
+                    <div className="space-y-1">
+                      <label className={`block text-[11px] ${panelMuted}`}>Attach screenshot evidence (optional)</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0] ?? null
+                          setScreenshotFile(f)
+                          queueTaskEvent('task_file_select', { file_name: f?.name ?? null })
+                          if (screenshotPreviewUrl) {
+                            URL.revokeObjectURL(screenshotPreviewUrl)
+                          }
+                          setScreenshotPreviewUrl(f ? URL.createObjectURL(f) : null)
+                        }}
+                        className="w-full text-[11px]"
+                      />
+                      {screenshotPreviewUrl && (
+                        <img src={screenshotPreviewUrl} alt="Task screenshot preview" className="w-full max-h-24 object-cover rounded border border-black/10" />
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={submitTaskWorkspaceAnswer}
+                      className="w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors"
+                    >
+                      Submit task response to examiner
+                    </button>
+                  </div>
+                )}
+              </aside>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Voice input bar — hidden when simulation panel has its own voice bar */}
+      {!(assessmentMode === 'multimodal' && effectiveDirective?.type === 'simulation') && (
+        <VoiceInterface
+          aiState={aiState}
+          onResponse={handleStudentResponse}
+          disabled={aiState !== 'idle'}
+          allowTextInput={allowTextInput}
+          onDraftChange={setLiveDraft}
+          variant={theme}
+        />
+      )}
 
       {/* Webcam self-view */}
       <div
-        className={`fixed bottom-[88px] right-4 w-28 h-20 rounded-xl overflow-hidden border shadow-xl transition-opacity duration-500 ${webcamBorder} ${webcamReady ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed w-28 h-20 rounded-xl overflow-hidden border shadow-xl transition-opacity duration-500 ${webcamBorder} ${webcamReady ? 'opacity-100' : 'opacity-0 pointer-events-none'} ${assessmentMode === 'multimodal' && effectiveDirective?.type === 'simulation' ? 'bottom-4 right-4' : 'bottom-[88px] right-4'}`}
       >
         <video ref={webcamVideoRef} autoPlay muted playsInline className="w-full h-full object-cover scale-x-[-1]" />
       </div>

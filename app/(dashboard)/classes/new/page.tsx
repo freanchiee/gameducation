@@ -31,7 +31,7 @@ export default function NewClassPage() {
 
   function handleProgramme(p: 'MYP' | 'DP') {
     setProgramme(p)
-    setForm(f => ({ ...f, year_group: YEAR_GROUPS[p][p === 'MYP' ? 3 : 0] }))
+    setForm(f => ({ ...f, year_group: YEAR_GROUPS[p][p === 'MYP' ? 3 : 0] ?? '' }))
   }
 
   async function handleSubmit(e: React.FormEvent) {
