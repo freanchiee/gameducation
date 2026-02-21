@@ -17,7 +17,7 @@ interface ParsedEmbed {
 // ─── GeoGebra ────────────────────────────────────────────────────────────────
 // Supported URL patterns:
 //   https://www.geogebra.org/m/{id}
-//   https://www.geogebra.org/material/iframe/id/{id}
+//   https://www.geogebra.org/material/iframe/id/{id}/width/...  (already-embedded, round-trip safe)
 //   https://www.geogebra.org/graphing/{id}
 //   https://www.geogebra.org/calculator/{id}
 //   https://www.geogebra.org/geometry/{id}
@@ -25,19 +25,36 @@ interface ParsedEmbed {
 //   https://www.geogebra.org/classic/{id}
 //   https://www.geogebra.org/graphing?id={id}   (query-param variant)
 function parseGeoGebra(url: string): ParsedEmbed | null {
-  // Path-segment variant: /m/{id} or /calculator/{id} etc.
+  const EMBED_BASE = `https://www.geogebra.org/material/iframe/id`
+  const EMBED_PARAMS = `/width/800/height/500/border/888888/sfsb/true/smb/false/stb/false/stbh/false/ai/false/asb/false/sri/false/rc/false/ld/false/sdz/true/ctl/false`
+
+  // ── Already a fully-formed embed URL ──────────────────────────────────────
+  // e.g. https://www.geogebra.org/material/iframe/id/{id}/width/960/...
+  // Must anchor to /width/\d to avoid capturing the "false" in rc/false etc.
+  const embedMatch = url.match(/geogebra\.org\/material\/iframe\/id\/([A-Za-z0-9_-]+)\/width\/\d/)
+  if (embedMatch) {
+    return {
+      type: 'geogebra',
+      title: 'GeoGebra',
+      embedUrl: `${EMBED_BASE}/${embedMatch[1]}${EMBED_PARAMS}`,
+    }
+  }
+
+  // ── Path-segment variant: /m/{id} or /calculator/{id} etc. ───────────────
+  // Intentionally excludes material/iframe/id — handled above to avoid
+  // the bug where /rc/false causes "false" to be captured as the material ID.
   const pathMatch = url.match(
-    /geogebra\.org\/(?:m|material\/iframe\/id|graphing|calculator|geometry|3d|classic)\/([A-Za-z0-9_-]+)/
+    /geogebra\.org\/(?:m|graphing|calculator|geometry|3d|classic)\/([A-Za-z0-9_-]+)/
   )
   if (pathMatch) {
     return {
       type: 'geogebra',
       title: 'GeoGebra',
-      embedUrl: `https://www.geogebra.org/material/iframe/id/${pathMatch[1]}/width/800/height/500/border/888888/sfsb/true/smb/false/stb/false/stbh/false/ai/false/asb/false/sri/false/rc/false/ld/false/sdz/true/ctl/false`,
+      embedUrl: `${EMBED_BASE}/${pathMatch[1]}${EMBED_PARAMS}`,
     }
   }
 
-  // Query-param variant: /graphing?id={id}
+  // ── Query-param variant: /graphing?id={id} ────────────────────────────────
   try {
     const parsed = new URL(url)
     const id = parsed.searchParams.get('id')
@@ -45,7 +62,7 @@ function parseGeoGebra(url: string): ParsedEmbed | null {
       return {
         type: 'geogebra',
         title: 'GeoGebra',
-        embedUrl: `https://www.geogebra.org/material/iframe/id/${id}/width/800/height/500/border/888888/sfsb/true/smb/false/stb/false/stbh/false/ai/false/asb/false/sri/false/rc/false/ld/false/sdz/true/ctl/false`,
+        embedUrl: `${EMBED_BASE}/${id}${EMBED_PARAMS}`,
       }
     }
   } catch {
