@@ -37,6 +37,18 @@ export interface ClassEnrolment {
 export type AssessmentCriterion = 'A' | 'B' | 'C' | 'D'
 export type AssessmentStatus = 'draft' | 'active' | 'closed'
 
+// ─── Multimodal Resources ─────────────────────────────────────────────────────
+export type ResourceType = 'geogebra' | 'phet' | 'youtube' | 'embed' | 'url'
+
+export interface EmbedResource {
+  id: string            // client-side UUID for list management
+  type: ResourceType
+  title: string
+  originalUrl?: string  // URL the teacher typed (GeoGebra/PhET/YouTube)
+  embedUrl?: string     // normalized iframe src
+  embedHtml?: string    // raw HTML for 'embed' type (teacher-pasted code)
+}
+
 export interface Assessment {
   id: string
   class_id: string
@@ -51,6 +63,7 @@ export interface Assessment {
   max_group_size: number                 // 1–4
   system_prompt: string | null           // custom teacher instructions
   topic_context: string | null           // what was taught before this assessment
+  resources: EmbedResource[]             // multimodal resources shown to student
   status: AssessmentStatus
   access_code: string                    // 6-char uppercase
   created_at: string

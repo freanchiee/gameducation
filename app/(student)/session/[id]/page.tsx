@@ -4,7 +4,8 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import VoiceInterface from '@/components/assessment/VoiceInterface'
 import ConversationFeed from '@/components/assessment/ConversationFeed'
-import type { Message } from '@/lib/types'
+import ResourcePanel from '@/components/assessment/ResourcePanel'
+import type { Message, EmbedResource } from '@/lib/types'
 
 type AIState = 'idle' | 'listening' | 'processing' | 'speaking'
 type ConceptTracker = {
@@ -26,6 +27,7 @@ export default function SessionPage() {
   const [studentName, setStudentName] = useState('')
   const [participantId, setParticipantId] = useState('')
   const [allowTextInput, setAllowTextInput] = useState(false)
+  const [resources, setResources] = useState<EmbedResource[]>([])
   const [error, setError] = useState<string | null>(null)
   const [debugEvents, setDebugEvents] = useState<string[]>([])
   const initialized = useRef(false)
@@ -188,6 +190,7 @@ export default function SessionPage() {
       setMaxQuestions(data.max_questions ?? 6)
       if (data.concept_tracker) setConceptTracker(data.concept_tracker as ConceptTracker)
       if (data.concept_focus) setConceptFocus(String(data.concept_focus))
+      if (Array.isArray(data.resources)) setResources(data.resources as EmbedResource[])
       setAiState('speaking')
 
       // Text-to-speech
@@ -369,6 +372,9 @@ export default function SessionPage() {
           style={{ width: `${((questionNumber - 1) / maxQuestions) * 100}%` }}
         />
       </div>
+
+      {/* Resources (GeoGebra / PhET / YouTube / embed) */}
+      <ResourcePanel resources={resources} />
 
       {/* Conversation */}
       <div className="flex-1 overflow-hidden">

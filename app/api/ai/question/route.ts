@@ -65,7 +65,7 @@ export async function POST(request: Request) {
     // Fetch session + assessment config
     const { data: session, error: sessionError } = await supabase
       .from('sessions')
-      .select('*, assessments(topic, year_group, system_prompt, topic_context, max_questions, criteria)')
+      .select('*, assessments(topic, year_group, system_prompt, topic_context, max_questions, criteria, resources)')
       .eq('id', session_id)
       .single()
 
@@ -202,6 +202,10 @@ export async function POST(request: Request) {
       },
       concept_focus: conceptFocus,
       should_finish: shouldFinish,
+      // Only included on first question to avoid repeated payloads
+      ...(question_number === 1 && {
+        resources: (assessment.resources as unknown[]) ?? [],
+      }),
     })
   } catch (err) {
     console.error('[/api/ai/question] error', {

@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { Class, AssessmentCriterion } from '@/lib/types'
+import { Class, AssessmentCriterion, EmbedResource } from '@/lib/types'
+import ResourceBuilder from '@/components/teacher/ResourceBuilder'
 
 // Topics per subject per year group (mirrors lib/prompts/subjects.ts)
 const SUBJECT_TOPICS: Record<string, Record<string, string[]>> = {
@@ -61,6 +62,7 @@ export default function NewAssessmentForm({ classes }: Props) {
   const [maxQuestions, setMaxQuestions] = useState(6)
   const [topicContext, setTopicContext] = useState('')
   const [customInstructions, setCustomInstructions] = useState('')
+  const [resources, setResources] = useState<EmbedResource[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -107,6 +109,7 @@ export default function NewAssessmentForm({ classes }: Props) {
       max_group_size: 1,
       topic_context: topicContext || null,
       system_prompt: customInstructions || null,
+      resources,
       status: 'draft',
       access_code: generateAccessCode(),
     })
@@ -274,6 +277,20 @@ export default function NewAssessmentForm({ classes }: Props) {
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
           />
         </div>
+      </div>
+
+      {/* Resources */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
+            Resources <span className="normal-case font-normal text-gray-400">(optional)</span>
+          </h2>
+          <p className="text-xs text-gray-400 mt-1">
+            Add GeoGebra, PhET or YouTube links — or paste any embed code. Students see these
+            alongside the conversation during the assessment.
+          </p>
+        </div>
+        <ResourceBuilder resources={resources} onChange={setResources} />
       </div>
 
       {error && (
