@@ -73,7 +73,7 @@ export default function SimulationEmbed({ rawUrl, title = 'Simulation', classNam
   // No valid URL
   if (!embedUrl) {
     return (
-      <div className={`flex flex-col items-center justify-center h-full bg-gray-900 text-gray-400 gap-3 ${className}`}>
+      <div className={`flex flex-col items-center justify-center bg-gray-900 text-gray-400 gap-3 ${className}`}>
         <span className="text-4xl">🔬</span>
         <p className="text-sm font-medium text-gray-300">Simulation not configured</p>
         <p className="text-xs text-gray-500 max-w-xs text-center">
@@ -90,7 +90,7 @@ export default function SimulationEmbed({ rawUrl, title = 'Simulation', classNam
   }
 
   return (
-    <div className={`relative w-full h-full bg-gray-950 ${className}`}>
+    <div className={`relative w-full bg-gray-950 ${className}`}>
       {/* Loading overlay */}
       {state === 'loading' && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-950 z-10 gap-3">

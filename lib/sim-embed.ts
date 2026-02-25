@@ -32,19 +32,19 @@ export function normaliseGeoGebraUrl(raw: string): string | null {
     const id = match?.[1]
     if (!id || id === 'false' || id === 'true' || id === 'null' || id === 'undefined') return null
     // Return cleaned version without extra params that can cause CSP issues
-    return `https://www.geogebra.org/material/iframe/id/${id}/width/800/height/600/border/ffffff/sfsb/true/smb/false/stb/false/stbh/false/ai/false/rc/false`
+    return `https://www.geogebra.org/material/iframe/id/${id}/width/960/height/700/border/ffffff/sfsb/true/smb/false/stb/false/stbh/false/ai/false/rc/false`
   }
 
   // Short link: geogebra.org/m/MATERIAL_ID
   const shortMatch = url.pathname.match(/^\/m\/([a-zA-Z0-9]+)/)
   if (shortMatch?.[1]) {
-    return `https://www.geogebra.org/material/iframe/id/${shortMatch[1]}/width/800/height/600/border/ffffff/sfsb/true/smb/false/stb/false/stbh/false/ai/false/rc/false`
+    return `https://www.geogebra.org/material/iframe/id/${shortMatch[1]}/width/960/height/700/border/ffffff/sfsb/true/smb/false/stb/false/stbh/false/ai/false/rc/false`
   }
 
   // Classic viewer: geogebra.org/graphing, /geometry, etc. with id= param
   const idParam = url.searchParams.get('id') || url.searchParams.get('material')
   if (idParam && idParam !== 'false') {
-    return `https://www.geogebra.org/material/iframe/id/${idParam}/width/800/height/600/border/ffffff/sfsb/true/smb/false/stb/false/stbh/false/ai/false/rc/false`
+    return `https://www.geogebra.org/material/iframe/id/${idParam}/width/960/height/700/border/ffffff/sfsb/true/smb/false/stb/false/stbh/false/ai/false/rc/false`
   }
 
   // Calculator/graphing/geometry app without specific material — embed the tool itself

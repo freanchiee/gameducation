@@ -289,13 +289,17 @@ export default function SessionPage() {
       const res = await fetch(`/api/sessions/${sessionId}/materials?participant_id=${encodeURIComponent(pId)}`)
       if (!res.ok) return
       const data = await res.json()
+      // Restore assessment mode on reload — materials API always returns the real mode
+      if (data.assessment_mode === 'multimodal') {
+        setAssessmentMode('multimodal')
+      }
       const next: Record<string, SessionMaterial> = {}
       for (const material of (data.materials ?? []) as SessionMaterial[]) {
         next[material.id] = material
       }
       setMaterialsById(next)
       setMaterialsLoaded(true)
-      logDebug('materials loaded', { count: Object.keys(next).length })
+      logDebug('materials loaded', { count: Object.keys(next).length, mode: data.assessment_mode })
     } catch {
       logDebug('materials load failed')
     }
@@ -458,6 +462,8 @@ export default function SessionPage() {
           logDebug('resuming', { count: existing.length })
           setMessages(existing)
           await bootstrapMultimodalRuntime(pId)
+          // Restore assessment mode + materials on reload (applyQuestionMetadata isn't called on resume)
+          void loadSessionMaterials(pId)
           const aiCount = existing.filter((m) => m.role === 'ai').length
           setQuestionNumber(aiCount)
           setSessionStartMs(Date.now())
@@ -625,22 +631,33 @@ export default function SessionPage() {
     ? {
         type: 'simulation',
         material_id: defaultSimulationMaterial.id,
+        // Prefer original url (teacher-typed) over embed_url which may have been stored broken
         url:
-          (typeof defaultSimulationMaterial.material_data?.embed_url === 'string'
-            ? defaultSimulationMaterial.material_data.embed_url
-            : typeof defaultSimulationMaterial.material_data?.url === 'string'
+          (typeof defaultSimulationMaterial.material_data?.url === 'string' && defaultSimulationMaterial.material_data.url
             ? defaultSimulationMaterial.material_data.url
+            : typeof defaultSimulationMaterial.material_data?.embed_url === 'string'
+            ? defaultSimulationMaterial.material_data.embed_url
             : ''),
         context: 'Explore the simulation and use the data/task panel to support your answer.',
       }
     : null)
 
   const activeMaterial = effectiveDirective?.material_id ? materialsById[effectiveDirective.material_id] : null
-  const fallbackUrl =
-    activeMaterial?.signed_url ||
-    effectiveDirective?.url ||
-    activeMaterial?.media_urls?.[0] ||
-    ((activeMaterial?.material_data?.url as string | undefined) ?? null)
+  // For simulation directives, skip signed_url (which is for uploaded files, not embed URLs)
+  // and prefer the embed URL from the directive or material_data directly.
+  const isSimDirective = effectiveDirective?.type === 'simulation'
+  const fallbackUrl = isSimDirective
+    ? // For simulations: prefer directive URL (server-normalised), then original material URL,
+      // then embed_url (may be broken from old save bug). Skip signed_url (uploaded-file only).
+      (effectiveDirective?.url ||
+        (typeof activeMaterial?.material_data?.url === 'string' ? activeMaterial.material_data.url : null) ||
+        (typeof activeMaterial?.material_data?.embed_url === 'string' ? activeMaterial.material_data.embed_url : null) ||
+        activeMaterial?.media_urls?.[0] ||
+        null)
+    : (activeMaterial?.signed_url ||
+        effectiveDirective?.url ||
+        activeMaterial?.media_urls?.[0] ||
+        ((activeMaterial?.material_data?.url as string | undefined) ?? null))
   const viewerTitle = activeMaterial?.title ?? 'Session material'
   const viewerContext = effectiveDirective?.context ?? ''
   // Clean sim URLs — normalise away broken id/false patterns
@@ -1052,12 +1069,12 @@ export default function SessionPage() {
               )}
             </div>
 
-            {/* Full-height simulation embed */}
-            <div className="flex-1 min-h-0 overflow-hidden">
+            {/* Full-height simulation embed — explicit height so h-full on inner iframe resolves correctly */}
+            <div className="flex-1 min-h-0 overflow-auto">
               <SimulationEmbed
                 rawUrl={fallbackUrl}
                 title={viewerTitle}
-                className="w-full h-full"
+                className="w-full h-[720px]"
               />
             </div>
           </div>

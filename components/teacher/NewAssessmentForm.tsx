@@ -84,9 +84,20 @@ function normalizeSimulationEmbedUrl(input: string) {
     }
 
     if (host.includes('geogebra.org')) {
-      const parts = u.pathname.split('/').filter(Boolean)
-      const id = parts[parts.length - 1]
-      if (id) return `https://www.geogebra.org/material/iframe/id/${id}/width/960/height/540/border/888888/rc/false/ai/false`
+      // Already a normalized iframe URL — extract real ID, not last path segment
+      const iframeMatch = u.pathname.match(/\/material\/iframe\/id\/([^/]+)/)
+      if (iframeMatch) {
+        const id = iframeMatch[1]
+        if (id && id !== 'false' && id !== 'true' && id !== 'null' && id !== 'undefined') {
+          return `https://www.geogebra.org/material/iframe/id/${id}/width/960/height/540/border/888888/rc/false/ai/false`
+        }
+        return raw
+      }
+      // Short share link: geogebra.org/m/ID
+      const shortMatch = u.pathname.match(/^\/m\/([a-zA-Z0-9]+)/)
+      if (shortMatch?.[1]) {
+        return `https://www.geogebra.org/material/iframe/id/${shortMatch[1]}/width/960/height/540/border/888888/rc/false/ai/false`
+      }
     }
 
     return raw

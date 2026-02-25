@@ -122,9 +122,20 @@ function normalizeEmbedUrl(input: string) {
       return id ? `https://www.youtube.com/embed/${id}` : raw
     }
     if (host.includes('geogebra.org')) {
-      const parts = u.pathname.split('/').filter(Boolean)
-      const id = parts[parts.length - 1]
-      if (id) return `https://www.geogebra.org/material/iframe/id/${id}/width/960/height/540/border/888888/rc/false/ai/false`
+      // Already a normalized iframe URL — extract the real ID from the /id/ segment
+      const iframeMatch = u.pathname.match(/\/material\/iframe\/id\/([^/]+)/)
+      if (iframeMatch) {
+        const id = iframeMatch[1]
+        if (id && id !== 'false' && id !== 'true' && id !== 'null' && id !== 'undefined') {
+          return `https://www.geogebra.org/material/iframe/id/${id}/width/960/height/540/border/888888/rc/false/ai/false`
+        }
+        return raw
+      }
+      // Short share link: geogebra.org/m/ID
+      const shortMatch = u.pathname.match(/^\/m\/([a-zA-Z0-9]+)/)
+      if (shortMatch?.[1]) {
+        return `https://www.geogebra.org/material/iframe/id/${shortMatch[1]}/width/960/height/540/border/888888/rc/false/ai/false`
+      }
     }
     return raw
   } catch {
@@ -301,6 +312,7 @@ export async function POST(request: Request) {
     }
 
     const assessment = session.assessments
+    console.log('🔍 [DEBUG] assessment.resources:', JSON.stringify((assessment as any).resources, null, 2))
     const isMultimodal = (assessment as any).assessment_mode === 'multimodal'
     const engineMode = ((assessment as any).multimodal_engine_mode ?? 'auto') as 'auto' | 'advanced'
     const configuredTaskTypes = Array.isArray((assessment as any).multimodal_task_types)
@@ -332,12 +344,14 @@ export async function POST(request: Request) {
         }) as any
 
         if (simMaterial) {
+          // Prefer material_data.url (original teacher input) over embed_url which may have
+          // been stored with the old last-segment bug producing id/false in the URL.
           const rawUrl =
-            (typeof simMaterial.material_data?.embed_url === 'string' && simMaterial.material_data.embed_url) ||
             (typeof simMaterial.material_data?.url === 'string' && simMaterial.material_data.url) ||
+            (typeof simMaterial.material_data?.embed_url === 'string' && simMaterial.material_data.embed_url) ||
             (Array.isArray(simMaterial.media_urls) && typeof simMaterial.media_urls[0] === 'string' ? simMaterial.media_urls[0] : '')
           const embedUrl = normalizeEmbedUrl(rawUrl || '')
-          if (embedUrl) {
+          if (embedUrl && !/\/id\/(false|true|null|undefined)\b/.test(embedUrl)) {
             preferredSimulation = { materialId: simMaterial.id, embedUrl }
           }
         }
