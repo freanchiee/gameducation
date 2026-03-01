@@ -4,6 +4,64 @@ import { buildAssessorPrompt } from '@/lib/prompts/assessor'
 import { claudeClient } from '@/lib/claude'
 import type { Message } from '@/lib/types'
 
+/**
+ * Normalise a simulation/embed URL before sending to the client.
+ *
+ * Critical bug this prevents: the naive "last path segment" approach extracts
+ * `false` from already-normalised GeoGebra iframe URLs like:
+ *   /material/iframe/id/XXXX/.../rc/false/ai/false
+ * which causes GeoGebra to load its default "Linear Functions Explorer" applet.
+ *
+ * Fix: always match the real material ID from the `/id/<ID>` segment.
+ */
+function normalizeEmbedUrl(raw: string): string {
+  if (!raw) return raw
+  try {
+    const u = new URL(raw)
+    const host = u.hostname.toLowerCase()
+
+    if (host.includes('youtube.com') || host.includes('youtu.be')) {
+      const vid =
+        u.searchParams.get('v') ||
+        (host.includes('youtu.be') ? u.pathname.slice(1) : null) ||
+        u.pathname.split('/').pop()
+      return vid ? `https://www.youtube.com/embed/${vid}` : raw
+    }
+
+    if (host.includes('geogebra.org')) {
+      // Already a normalised iframe URL — extract real ID from /id/<ID>/ segment
+      const iframeMatch = u.pathname.match(/\/material\/iframe\/id\/([^/]+)/)
+      if (iframeMatch) {
+        const id = iframeMatch[1]
+        // Guard against broken stored IDs (false/true/null from the old bug)
+        if (id && id !== 'false' && id !== 'true' && id !== 'null' && id !== 'undefined') {
+          return `https://www.geogebra.org/material/iframe/id/${id}/width/960/height/540/border/888888/rc/false/ai/false`
+        }
+        return raw
+      }
+      // Short share link: geogebra.org/m/<ID>
+      const shortMatch = u.pathname.match(/^\/m\/([a-zA-Z0-9]+)/)
+      if (shortMatch?.[1]) {
+        return `https://www.geogebra.org/material/iframe/id/${shortMatch[1]}/width/960/height/540/border/888888/rc/false/ai/false`
+      }
+    }
+
+    return raw
+  } catch {
+    return raw
+  }
+}
+
+/** Returns false if the URL resolved to a known-broken GeoGebra material ID */
+function isValidEmbedUrl(url: string): boolean {
+  if (!url) return false
+  return !/\/id\/(false|true|null|undefined)\b/.test(url)
+}
+
+// normalizeEmbedUrl and isValidEmbedUrl are used when simulation resources are
+// attached to assessments. Exported so they can be reused in other API routes.
+export { normalizeEmbedUrl, isValidEmbedUrl }
+
 export async function POST(request: Request) {
   try {
     const body = await request.json()

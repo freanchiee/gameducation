@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes gd-float {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(0, -8px, 0) scale(1.03); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes gd-drift {
+  0% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(12px, -10px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -55,5 +67,23 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .gd-surface {
+    @apply bg-[#f4f4f5] border border-[#cdd2dd] rounded-2xl shadow-sm;
+  }
+
+  .gd-panel {
+    @apply bg-[#eef8fb] border-r border-[#bfcfd4];
+  }
+
+  .gd-button {
+    @apply bg-[#24408f] text-white hover:bg-[#1f387e] transition-colors;
+  }
+
+  .gd-input {
+    @apply border border-[#4e5a75] bg-[#ece6bf] text-[#1f3779] placeholder:text-[#7b7f86] focus:outline-none focus:ring-2 focus:ring-[#24408f];
   }
 }
